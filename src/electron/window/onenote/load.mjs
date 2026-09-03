@@ -134,6 +134,12 @@ window.addEventListener('load', async () => {
     registry.tabManager = tabManager;
     tabManager.init();
 
+    // Search feature (token harvester + overlay)
+    const { default: searchHarvest } = await import('./search/token-harvester.mjs');
+    registry.searchHarvest = searchHarvest;
+    const { default: searchOverlay } = await import('./search/overlay.mjs');
+    registry.searchOverlay = searchOverlay;
+
     // Set up bottom bar
     updateBarLabels();
 
@@ -146,6 +152,7 @@ window.addEventListener('load', async () => {
         if (wv) wv.goForward();
     };
     document.getElementById('p3x-donate-btn').onclick = () => shell.openExternal('https://paypal.me/patrikx3');
+    document.getElementById('p3x-search-btn').onclick = () => registry.searchOverlay?.toggle();
     document.getElementById('p3x-location-bar').onclick = () => {
         import('./action/multi-action/get-location.mjs').then(m => m.default());
     };

@@ -37,6 +37,9 @@ app.on('ready', () => {
     // Create the main window
     registry.createWindow.onenote();
 
+    // Spawn the search indexer (utilityProcess) — idle until the first sync
+    registry.search?.init();
+
     // Follow system dark/light theme when mode is 'system'
     nativeTheme.on('updated', () => {
         if (registry.darkThemeMode !== 'system') return;
@@ -136,4 +139,10 @@ app.on('web-contents-created', function (webContentsCreatedEvent, contents) {
             newWindowEvent.preventDefault();
         });
     }
+});
+
+app.on('before-quit', function () {
+    // Graceful indexer shutdown — a killed sync leaves last_sync_at unset, so
+    // the next startup re-syncs.
+    registry.search?.shutdown();
 });

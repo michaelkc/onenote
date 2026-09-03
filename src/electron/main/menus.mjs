@@ -19,6 +19,14 @@ const menus = {
                 click: action.corporate
             },
             {
+                label: registry.lang.search?.searchNotes || 'Search notes',
+                click: () => {
+                    registry.window.onenote.webContents.send('p3x-onenote-action', {
+                        action: 'search-notes',
+                    })
+                }
+            },
+            {
                 label: registry.lang.label.clearCache?.title || registry.lang.label.clearCache || 'Clear data and restart',
                 submenu: [
                     {

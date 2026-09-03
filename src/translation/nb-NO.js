@@ -224,6 +224,29 @@ const translation = {
         required: 'Påkrevd',
         url: 'Ugyldig URL',
     },
+    search: {
+        // TODO: run scripts/auto-translate.js to translate the search section
+        title: 'Search',
+        searchNotes: 'Search notes',
+        rebuildIndex: 'Rebuild index',
+        indexStatus: 'Index status',
+        placeholder: 'Search notes...',
+        typeMore: 'Type at least 2 characters.',
+        noResults: 'No matching notes.',
+        indexEmpty: 'No notes indexed yet. The index builds in the background after sign-in.',
+        signInRequired: 'Index unavailable — sign in to OneNote.',
+        harvestingToken: 'Signing in to search...',
+        syncing: (sectionsDone, sectionsTotal) => `Indexing notes... (${sectionsDone}/${sectionsTotal} sections)`,
+        retrying: (attempt, maxAttempts) => `Rate limited — retrying (${attempt}/${maxAttempts})...`,
+        syncDone: (count) => `Indexed ${count} notes.`,
+        syncFailed: 'Indexing failed.',
+        rebuildStarted: 'Rebuilding the index...',
+        lastSync: (time) => `Last updated: ${time}`,
+        indexedCount: (count) => `Indexed ${count} notes.`,
+        openHint: 'Arrow keys select · Enter opens · Esc closes',
+        searchFailed: 'Search failed — try again.',
+        syncBusy: 'An index sync is already running.',
+    },
 };
 
 module.exports = translation;

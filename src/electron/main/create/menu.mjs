@@ -186,6 +186,39 @@ function mainMenu() {
             submenu: bookmarksMenu
         },
         {
+            label: registry.lang.search?.title || 'Search',
+            submenu: [
+                {
+                    label: registry.lang.search?.searchNotes || 'Search notes',
+                    // The application-menu accelerator fires even while the
+                    // OneNote webview has focus, so no key interception needed.
+                    accelerator: 'CommandOrControl+Shift+E',
+                    click: () => {
+                        registry.window.onenote.webContents.send('p3x-onenote-action', {
+                            action: 'search-notes',
+                        })
+                    }
+                },
+                {
+                    label: registry.lang.search?.rebuildIndex || 'Rebuild index',
+                    click: () => {
+                        registry.window.onenote.webContents.send('p3x-onenote-action', {
+                            action: 'search-rebuild-index',
+                        })
+                    }
+                },
+                {type: 'separator'},
+                {
+                    label: registry.lang.search?.indexStatus || 'Index status',
+                    click: () => {
+                        registry.window.onenote.webContents.send('p3x-onenote-action', {
+                            action: 'search-index-status',
+                        })
+                    }
+                },
+            ]
+        },
+        {
             label: registry.lang.menu.action,
             submenu: [
                 copyLocation,

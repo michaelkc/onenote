@@ -7,6 +7,10 @@
 
 ## Change log
 
+### v2026.4.151
+Released on 09/04/2026
+* FEATURE: Added global note search — an app-managed SQLite FTS5 index built from the OneNote Graph API, with a search overlay (Search menu, Ctrl+Shift+E, or the bottom-bar magnifier) listing matching notes with highlighted snippets. Opening a result navigates the OneNote tab to the note's deep link. The index syncs incrementally in the background (rebuild via Search > Rebuild index); auth uses the bearer token harvested from the signed-in OneNote webview.
+
 ### v2026.4.132
 Released on 04/07/2026
 * BUGFIX: Fixed internal popup redirect ("set link") not working — new-window handler was using a null webview reference instead of the active tab's webview.

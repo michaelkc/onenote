@@ -202,6 +202,7 @@ registry.mainMenu = (await import('./main/create/menu.mjs')).default
 registry.mainTray = (await import('./main/create/tray.mjs')).default
 registry.setVisible = (await import('./main/set-visible.mjs')).default
 registry.createWindow.onenote = (await import('./main/create/window/onenote.mjs')).default
+registry.search = (await import('./main/search-controller.mjs')).default
 
 
 const gotTheLock = app.requestSingleInstanceLock()

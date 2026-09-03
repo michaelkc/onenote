@@ -92,6 +92,11 @@ function setupWebviewHandlers(tab) {
     webview.addEventListener('dom-ready', () => {
         tab.domReady = true;
 
+        // After a tab (re)loads, make sure a validated search token exists and
+        // the startup sync can run (guarded optional call — no-op until the
+        // search modules are imported in load.mjs).
+        registry.searchHarvest?.onTabReady(tab);
+
         // Apply per-tab zoom for all tabs on dom-ready
         const zoom = tab.zoom !== undefined ? tab.zoom : 1.0;
         if (zoom !== 1.0) webview.setZoomFactor(zoom);
@@ -235,6 +240,9 @@ function switchTab(id) {
     }
     renderTabBar();
     conf().set('activeTabId', id);
+
+    // The search overlay rebinds to the new tab's account when open
+    registry.searchOverlay?.onTabSwitched(getActiveTab());
 }
 
 function getActiveWebview() {

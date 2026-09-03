@@ -10,7 +10,7 @@ const files = readdirSync(translationDir).filter(f => f.endsWith('.js'))
 const enUS = require('../src/translation/en-US.js')
 
 // Required top-level keys
-const requiredTopKeys = ['title', 'restart', 'label', 'dialog', 'button', 'menu', 'redirecting', 'slow', 'updater', 'bookmarks', 'tabs', 'validation']
+const requiredTopKeys = ['title', 'restart', 'label', 'dialog', 'button', 'menu', 'redirecting', 'slow', 'updater', 'bookmarks', 'tabs', 'search', 'validation']
 
 // Required label keys
 const requiredLabelKeys = Object.keys(enUS.label)
@@ -23,6 +23,9 @@ const requiredBookmarkKeys = Object.keys(enUS.bookmarks).filter(k => typeof enUS
 
 // Required tabs keys
 const requiredTabKeys = Object.keys(enUS.tabs).filter(k => typeof enUS.tabs[k] !== 'function')
+
+// Required search keys
+const requiredSearchKeys = Object.keys(enUS.search).filter(k => typeof enUS.search[k] !== 'function')
 
 describe('translations', () => {
     it('should have exactly 30 translation files', () => {
@@ -65,6 +68,12 @@ describe('translations', () => {
             it('has all required tab keys', () => {
                 for (const key of requiredTabKeys) {
                     expect(translation.tabs, `missing tabs.${key}`).toHaveProperty(key)
+                }
+            })
+
+            it('has all required search keys', () => {
+                for (const key of requiredSearchKeys) {
+                    expect(translation.search, `missing search.${key}`).toHaveProperty(key)
                 }
             })
 

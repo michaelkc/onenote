@@ -110,6 +110,14 @@ const handler = (options) => {
             });
         }
     });
+
+    // Search indexer events (sync progress, auth recovery) from the main process
+    ipcRenderer.on('p3x-onenote-search-event', (event, data) => {
+        registry.searchOverlay?.onEvent(data);
+        if (data?.type === 'token-needed') {
+            registry.searchHarvest?.onTokenNeeded(data);
+        }
+    });
 };
 
 export default handler;

@@ -50,6 +50,33 @@ ipcMain.on('p3x-debug', (event, data) => {
 })
 
 
+// ── Search index ─────────────────────────────────────────────────────
+
+ipcMain.handle('p3x-onenote-search-query', function (event, data = {}) {
+    return registry.search.query(data.query, data.accountKey)
+})
+
+ipcMain.handle('p3x-onenote-search-count', function (event, data = {}) {
+    return registry.search.count(data.accountKey)
+})
+
+ipcMain.handle('p3x-onenote-search-sync-request', function (event, data = {}) {
+    return registry.search.requestSync({ mode: data.mode, accountKey: data.accountKey })
+})
+
+ipcMain.handle('p3x-onenote-search-token-validate', function (event, data = {}) {
+    return registry.search.validateTokenCandidates({
+        accountKey: data.accountKey,
+        candidates: data.candidates,
+    })
+})
+
+ipcMain.handle('p3x-onenote-search-token-clear', function (event, data = {}) {
+    registry.search.clearToken(data.accountKey)
+    return {}
+})
+
+
 ipcMain.handle('p3x-onenote-bookmarks-export', async () => {
     const bookmarks = registry.conf.get('bookmarks') || []
     const result = await dialog.showSaveDialog(registry.window.onenote, {

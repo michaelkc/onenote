@@ -43,7 +43,8 @@ const multiActions = (data) => {
             break;
 
         case 'restart':
-            // Legacy: clear current tab everything
+            // Legacy: clear current tab everything — harvested search tokens die with it
+            window.electronShim.ipcRenderer.invoke('p3x-onenote-search-token-clear', {}).catch(() => {});
             if (webview) {
                 try {
                     const wc = remote.webContents.fromId(webview.getWebContentsId());
@@ -83,6 +84,8 @@ const multiActions = (data) => {
                 const onDone = () => {
                     cleared++;
                     if (cleared === total) {
+                        // The sessions are gone — harvested search tokens must go with them
+                        window.electronShim.ipcRenderer.invoke('p3x-onenote-search-token-clear', {}).catch(() => {});
                         // Navigate affected webviews to their saved URL
                         const allTabs = registry.tabManager?.tabs || [];
                         for (const wv of webviews) {
@@ -155,6 +158,12 @@ const multiActions = (data) => {
                 document.body.classList.add('p3x-dark-mode-invert-quirks');
             }
             p3xInjectDarkInvertAllFrames(data.darkThemeInvert === true);
+            break;
+
+        case 'search-notes':
+        case 'search-rebuild-index':
+        case 'search-index-status':
+            import('./multi-action/search.mjs').then(m => m.default(data));
             break;
     }
 };
