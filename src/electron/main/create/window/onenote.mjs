@@ -182,7 +182,12 @@ function createWindow() {
     autoUpdater.on('update-downloaded', (info) => {
         notify(registry.lang.updater["update-downloaded"])
     });
-    autoUpdater.checkForUpdatesAndNotify();
+
+    // Local dogfood builds (scripts/build-local-appimage.sh) carry a
+    // "-dogfood" version and must not phone the update channel.
+    if (!registry.pkg.version.includes('-dogfood')) {
+        autoUpdater.checkForUpdatesAndNotify();
+    }
 
 }
 

@@ -98,7 +98,7 @@ P3X OneNote Linux is an independent browser window for the online OneNote, so yo
 * **Bookmark folders** — organize bookmarks into nested folders using `/` separator (e.g. `Work/Projects`). Folders appear as submenus with 📁 icons in the Bookmarks menu.
 * **Bookmark manager** — full dialog to search, inline-edit, and delete bookmarks (Bookmarks > Manage bookmarks)
 * **Bookmark import/export** — export bookmarks to JSON and import from JSON file (Bookmarks menu)
-* **Global note search** — an app-managed full-text index of your notebooks (SQLite FTS5) built from the OneNote Graph API. Open the search overlay with the Search menu, **Ctrl+Shift+E**, or the bottom-bar magnifier; type to search with highlighted snippets and notebook › section context; arrows + Enter (or click) open a note in the OneNote tab. The index syncs incrementally in the background and can be force-rebuilt (Search > Rebuild index). Search needs a one-time sign-in (see [Search sign-in](#search-sign-in) below).
+* **Global note search** — a feature of this fork: full-text search over all your notebooks via an app-managed index. See [Global note search (this fork)](#global-note-search-this-fork) below.
 * `Corporate home` menu item — note: without a corporate login, debugging this feature is not possible. If issues arise, providing login details may help with troubleshooting.
 * **Language:** The language selector in P3X OneNote only controls the Electron app UI (menus, dialogs, buttons). To change the OneNote web content language, you must update your language in your [Microsoft account profile](https://account.microsoft.com/languages). Translations are community-driven:
     * [Translation resources on GitHub](https://github.com/patrikx3/onenote/tree/master/src/translation)
@@ -122,6 +122,20 @@ Right-click any tab to access:
 <!-- (`````~/.local/share/applications/p3x-onenote.desktop`````) -->
 
 ---
+
+## Global note search (this fork)
+
+This fork adds global full-text search over your notebooks — it is **not** part of upstream P3X OneNote. The app maintains its own SQLite search index, built from your notebooks over the Microsoft Graph API, so search is instant, works offline, and covers every notebook in the account. The index only re-downloads notes that changed.
+
+**Using it:**
+
+* Open the search overlay with **Ctrl+Shift+E**, the **Search** menu, or the magnifier button in the bottom bar.
+* Type to search: results show highlighted snippets with their Notebook › Section. **Arrow keys** move the selection, **Enter** (or a mouse click) opens the note in the OneNote tab.
+* The **Index** tab shows the indexer at work: sync progress, requests used vs. Microsoft's rate limits, pages indexed per notebook, recently indexed notes, and recent errors. **Sync now** and **Rebuild index** live here. The view refreshes every few seconds while open.
+* **Notebook selection:** uncheck a notebook in the Index tab to exclude it from indexing (all notebooks are indexed by default; changes apply on the next sync).
+* The index updates itself in the background — once after sign-in, then incrementally at startup and periodically. Syncing respects Microsoft's throttling and pauses automatically when the hourly request budget is reached, resuming on its own.
+
+The Search menu shows which account the index is signed in with — it can differ from the web app tab's login.
 
 ## Search sign-in
 
