@@ -32,6 +32,7 @@ let searchViewEl, indexViewEl
 let tabSearchBtn, tabIndexBtn
 let indexStateEl, indexErrorsEl, indexErrorsListEl, indexNotebooksEl, indexActivityEl
 let syncNowBtn, indexRebuildBtn
+let indexRefreshTimer = null
 
 // ── DOM ─────────────────────────────────────────────────────────────
 
@@ -165,6 +166,23 @@ function build() {
 
 // ── Mode (Search / Index views) ─────────────────────────────────────
 
+function startIndexRefresh() {
+    if (indexRefreshTimer === null) {
+        indexRefreshTimer = setInterval(() => {
+            if (visible && mode === 'index') {
+                refreshIndexStatus()
+            }
+        }, 5000)
+    }
+}
+
+function stopIndexRefresh() {
+    if (indexRefreshTimer !== null) {
+        clearInterval(indexRefreshTimer)
+        indexRefreshTimer = null
+    }
+}
+
 function setMode(next) {
     mode = next
     tabSearchBtn.classList.toggle('p3x-tab-active', mode === 'search')
@@ -173,7 +191,9 @@ function setMode(next) {
     indexViewEl.classList.toggle('p3x-hidden', mode !== 'index')
     if (mode === 'index') {
         refreshIndexStatus()
+        startIndexRefresh() // live updates while the tab is open
     } else {
+        stopIndexRefresh()
         inputEl.focus()
     }
 }
@@ -208,6 +228,7 @@ function showIndex() {
 function hide() {
     visible = false
     overlay().classList.add('p3x-hidden')
+    stopIndexRefresh()
     registry.tabManager?.getActiveWebview()?.focus()
 }
 
@@ -668,6 +689,18 @@ function onEvent(data) {
                 setStatus(lang('retrying', (a, b) => `Rate limited — retrying (${a}/${b})...`)(data.attempt, data.maxAttempts))
             }
             break
+
+        case 'throttle-waiting': {
+            const text = lang('throttleWaiting', (seconds) => `Rate limit reached — resuming in ${Math.round(seconds / 60)} min...`)(
+                data.seconds
+            )
+            if (mode === 'search') {
+                setStatus(text)
+            } else {
+                indexStateEl.textContent = text
+            }
+            break
+        }
 
         case 'sync-error':
             if (mode === 'search') {

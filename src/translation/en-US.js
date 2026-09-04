@@ -264,6 +264,7 @@ const translation = {
         harvestingToken: 'Signing in to search...',
         syncing: (sectionsDone, sectionsTotal) => `Indexing notes... (${sectionsDone}/${sectionsTotal} sections)`,
         retrying: (attempt, maxAttempts) => `Rate limited — retrying (${attempt}/${maxAttempts})...`,
+        throttleWaiting: (seconds) => `Rate limit reached — resuming in ${Math.max(1, Math.round(seconds / 60))} min...`,
         syncDone: (count) => `Indexed ${count} notes.`,
         syncFailed: 'Indexing failed.',
         rebuildStarted: 'Rebuilding the index...',

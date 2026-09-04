@@ -98,4 +98,46 @@ describe('graph api client retry behavior', () => {
         await expect(api.getNotebooks()).rejects.toBeInstanceOf(GraphApiError)
         expect(api.getStats().calls).toBe(4) // 1 initial + 3 retries
     })
+
+    it('paces requests to stay under the rolling-hour budget', async () => {
+        const waits = []
+        const api = createOneNoteApiClient({
+            getAccessToken: async () => 't',
+            fetchImpl: okJson([]),
+            // Tiny window/budget: budget 12 minus the 10 safety margin = 2
+            // requests, then the third must wait for the window to roll.
+            throttleBudget: 12,
+            throttleWindowMs: 60,
+            events: { throttleWaiting: (seconds, used, budget) => waits.push({ seconds, used, budget }) },
+        })
+        await api.getNotebooks()
+        await api.getNotebooks()
+        expect(waits).toHaveLength(0)
+        await api.getNotebooks() // this one waits out the 60ms window
+        expect(waits.length).toBeGreaterThan(0)
+        expect(waits[0].used).toBe(2)
+        expect(waits[0].budget).toBe(12)
+    })
+
+    it('honours Retry-After on 429 responses', async () => {
+        let calls = 0
+        const retrying = []
+        const api = createOneNoteApiClient({
+            getAccessToken: async () => 't',
+            baseRetryDelayMs: 1,
+            maxRetryAfterMs: 40,
+            events: { retrying: (a) => retrying.push(a) },
+            fetchImpl: async () => {
+                calls++
+                if (calls === 1) {
+                    return { ok: false, status: 429, headers: { get: () => '1' }, text: async () => '{}' }
+                }
+                return { ok: true, status: 200, text: async () => JSON.stringify({ value: [] }) }
+            },
+        })
+        const started = Date.now()
+        expect(await api.getNotebooks()).toEqual([])
+        expect(Date.now() - started).toBeGreaterThanOrEqual(40) // slept the Retry-After, not the 1ms backoff
+        expect(retrying).toHaveLength(1)
+    })
 })

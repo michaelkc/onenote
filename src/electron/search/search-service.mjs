@@ -9,10 +9,10 @@ import tombstonePlan from '../lib/search/tombstone-plan.mjs'
 import { GraphApiError } from './graph-api-client.mjs'
 
 function isFatal(error) {
-    if (error instanceof GraphApiError && error.statusCode === 401) {
-        return true // invalid token fails every section alike — surface to reauth
-    }
-    return error?.name === 'AbortError'
+    // Only an invalid token is fatal per item — everything else (including a
+    // wedged request that exhausted its retry attempts) is a per-section or
+    // per-note skip, so one bad note can never kill a whole sync.
+    return error instanceof GraphApiError && error.statusCode === 401
 }
 
 export default function createSearchService({ api, store, events = {}, notebookFilter }) {

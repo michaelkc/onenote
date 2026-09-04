@@ -58,6 +58,8 @@ async function runSync(message) {
         events: {
             retrying: (attempt, maxAttempts) =>
                 post({ type: 'event', event: { kind: 'retrying', attempt, maxAttempts } }),
+            throttleWaiting: (seconds, used, budget) =>
+                post({ type: 'event', event: { kind: 'throttle-waiting', seconds, used, budget } }),
         },
     })
     // Notebook scope: enabled set from the store; an empty table (first sync)

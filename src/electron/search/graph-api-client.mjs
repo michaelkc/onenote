@@ -14,6 +14,14 @@ const BASE_RETRY_DELAY_MS = 1000
 const ATTEMPT_TIMEOUT_MS = 30000
 const MAX_PAGES = 50
 
+// Graph throttles delegated clients at 120 req/min + 400 req/hour (rolling
+// window, shared with every other client on the account). Stop just short of
+// the hourly limit and wait for the oldest request to age out of the window.
+const THROTTLE_BUDGET = 400
+const THROTTLE_SAFETY_MARGIN = 10
+const THROTTLE_WINDOW_MS = 3600 * 1000
+const MAX_RETRY_AFTER_MS = 120 * 1000
+
 function parseErrorCode(body) {
     try {
         const parsed = JSON.parse(body)
@@ -60,9 +68,59 @@ export default function createOneNoteApiClient({
     fetchImpl,
     attemptTimeoutMs = ATTEMPT_TIMEOUT_MS,
     baseRetryDelayMs = BASE_RETRY_DELAY_MS,
+    maxRetryAfterMs = MAX_RETRY_AFTER_MS,
+    throttleBudget = THROTTLE_BUDGET,
+    throttleWindowMs = THROTTLE_WINDOW_MS,
 }) {
     const fetchFn = fetchImpl ?? globalThis.fetch
     const stats = { calls: 0, startedAt: Date.now() }
+
+    // Rolling-window request log for the hourly throttle budget.
+    const requestLog = []
+
+    function recordRequest() {
+        stats.calls++
+        const now = Date.now()
+        requestLog.push(now)
+        while (requestLog.length > 0 && requestLog[0] <= now - throttleWindowMs) {
+            requestLog.shift()
+        }
+    }
+
+    // Pause before sending when the rolling-hour budget is nearly spent, so a
+    // long sync never trips the 429 wall. Surfaces the wait to the UI.
+    async function paceThrottle(ct) {
+        for (;;) {
+            const now = Date.now()
+            while (requestLog.length > 0 && requestLog[0] <= now - throttleWindowMs) {
+                requestLog.shift()
+            }
+            if (requestLog.length < throttleBudget - THROTTLE_SAFETY_MARGIN) {
+                return
+            }
+            const waitMs = requestLog[0] + throttleWindowMs - now
+            events.throttleWaiting?.(Math.ceil(waitMs / 1000), requestLog.length, throttleBudget)
+            await sleep(Math.max(waitMs, 0), ct)
+        }
+    }
+
+    // A 429 with a Retry-After header names when the server wants us back —
+    // honour it (bounded) instead of the linear backoff.
+    function retryDelayMs(attempt, response) {
+        const backoff = baseRetryDelayMs * (attempt + 1)
+        const header = response?.headers?.get?.('retry-after')
+        if (typeof header === 'string' && header !== '') {
+            const seconds = Number(header)
+            if (Number.isFinite(seconds)) {
+                return Math.max(backoff, Math.min(seconds * 1000, maxRetryAfterMs))
+            }
+            const date = Date.parse(header)
+            if (!Number.isNaN(date)) {
+                return Math.max(backoff, Math.min(date - Date.now(), maxRetryAfterMs))
+            }
+        }
+        return backoff
+    }
 
     // A wedged attempt (the per-attempt timeout aborted it) is a transient
     // failure the retry loop handles — only an external cancellation (ct) is
@@ -80,6 +138,12 @@ export default function createOneNoteApiClient({
 
     async function getJson(url, ct) {
         for (let attempt = 0; ; attempt++) {
+            await paceThrottle(ct)
+            if (ct?.aborted) {
+                // An external cancellation may have landed while pacing — the
+                // abort listener is registered after this point.
+                throw ct.reason ?? new Error('Aborted')
+            }
             // A per-attempt timeout turns a wedged connection into a transient
             // failure the retry loop can handle, rather than an unbounded hang.
             const attemptTimeout = new AbortController()
@@ -87,9 +151,10 @@ export default function createOneNoteApiClient({
             ct?.addEventListener('abort', onAbort, { once: true })
             const timer = setTimeout(() => attemptTimeout.abort(), attemptTimeoutMs)
 
+            let response
             try {
-                stats.calls++
-                const response = await fetchFn(url, {
+                recordRequest()
+                response = await fetchFn(url, {
                     headers: { Authorization: `Bearer ${await getAccessToken()}` },
                     signal: attemptTimeout.signal,
                 })
@@ -112,20 +177,25 @@ export default function createOneNoteApiClient({
             }
 
             events.retrying?.(attempt + 1, MAX_RETRIES)
-            await sleep(baseRetryDelayMs * (attempt + 1), ct)
+            await sleep(retryDelayMs(attempt, response), ct)
         }
     }
 
     async function getContentHtml(url, ct) {
         for (let attempt = 0; ; attempt++) {
+            await paceThrottle(ct)
+            if (ct?.aborted) {
+                throw ct.reason ?? new Error('Aborted')
+            }
             const attemptTimeout = new AbortController()
             const onAbort = () => attemptTimeout.abort()
             ct?.addEventListener('abort', onAbort, { once: true })
             const timer = setTimeout(() => attemptTimeout.abort(), attemptTimeoutMs)
 
+            let response
             try {
-                stats.calls++
-                const response = await fetchFn(url, {
+                recordRequest()
+                response = await fetchFn(url, {
                     headers: { Authorization: `Bearer ${await getAccessToken()}` },
                     signal: attemptTimeout.signal,
                 })
@@ -148,7 +218,7 @@ export default function createOneNoteApiClient({
             }
 
             events.retrying?.(attempt + 1, MAX_RETRIES)
-            await sleep(baseRetryDelayMs * (attempt + 1), ct)
+            await sleep(retryDelayMs(attempt, response), ct)
         }
     }
 
