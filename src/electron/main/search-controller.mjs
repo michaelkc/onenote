@@ -173,8 +173,11 @@ function setStoredToken(key, bundle) {
 }
 
 async function validateAndStoreToken({ accountKey: rawKey, candidates }) {
-    const winner = await validateTokenCandidates(candidates)
+    const unique = [...new Set(candidates ?? [])].filter(Boolean)
+    log(`validating ${unique.length} harvested token candidate(s)`)
+    const winner = await validateTokenCandidates(unique)
     if (!winner) {
+        log('token validation failed — none of the harvested tokens passed the Graph check')
         return { valid: false }
     }
     const key = accountKey(rawKey)

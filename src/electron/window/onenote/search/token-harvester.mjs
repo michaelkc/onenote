@@ -117,18 +117,32 @@ async function harvest({ accountKey: rawKey = 'default', force = false } = {}) {
 
     const candidates = []
 
-    // 1. Storage scan
-    try {
-        const scanned = await tab.webview.executeJavaScript(SCAN_CODE)
-        if (Array.isArray(scanned)) {
-            for (const entry of scanned) {
-                if (entry?.value) {
-                    candidates.push(entry.value)
-                }
+    // 1. Storage scan — top frame plus every subframe (auth iframes can hold
+    //    their own storage where the top frame's scan sees nothing)
+    const collectScan = (scanned) => {
+        if (!Array.isArray(scanned)) {
+            return
+        }
+        for (const entry of scanned) {
+            if (entry?.value) {
+                candidates.push(entry.value)
             }
         }
+    }
+    try {
+        collectScan(await tab.webview.executeJavaScript(SCAN_CODE))
     } catch (error) {
-        console.error('[P3X-Search] storage scan failed', error)
+        console.error('[P3X-Search] top-frame storage scan failed', error)
+    }
+    try {
+        const wc = remote.webContents.fromId(tab.webview.getWebContentsId())
+        for (const frame of wc.mainFrame.framesInSubtree) {
+            try {
+                collectScan(await frame.executeJavaScript(SCAN_CODE))
+            } catch {}
+        }
+    } catch (error) {
+        console.error('[P3X-Search] subframe storage scan failed', error)
     }
 
     // 2. Passive CDP capture of Authorization headers
@@ -142,10 +156,15 @@ async function harvest({ accountKey: rawKey = 'default', force = false } = {}) {
     const unique = [...new Set(candidates)].filter(Boolean)
     console.log(`[P3X-Search] harvest for ${key}: ${unique.length} candidates`)
     if (unique.length === 0) {
+        // Renderer console output does not reach the terminal — mirror the
+        // outcome to the main-process log via the existing debug channel.
+        ipcRenderer.send('p3x-debug', {
+            '[P3X-Search] harvest': `0 candidates for ${key} — nothing token-like in webview storage, and no bearer headers seen on network traffic`,
+        })
         return { valid: false, reason: 'no-candidates' }
     }
 
-    // 3. Validate via main (which persists the winner)
+    // 3. Validate via main (which persists the winner and logs the outcome)
     try {
         const result = await ipcRenderer.invoke('p3x-onenote-search-token-validate', {
             accountKey: key,
@@ -158,13 +177,15 @@ async function harvest({ accountKey: rawKey = 'default', force = false } = {}) {
     }
 }
 
-// Hooked from tab-manager's dom-ready: after a tab signs in, make sure a
-// validated token exists and kick off the startup sync.
-async function onTabReady(tab) {
-    if (!tab?.account) {
-        return // unsigned tab — nothing to index yet
+// Make sure a validated token exists for the given tab's account (or the
+// shared 'default' key while the account email is not yet extracted) and kick
+// off the startup sync. Debounced per account — safe to call on every
+// navigation/dom-ready.
+async function ensureTokenForTab(tab) {
+    if (!tab?.domReady) {
+        return
     }
-    const key = tab.account
+    const key = (tab.account || 'default').trim().toLowerCase() || 'default'
     const last = lastTabCheck.get(key) || 0
     if (Date.now() - last < TAB_CHECK_DEBOUNCE_MS) {
         return
@@ -188,9 +209,25 @@ async function onTabReady(tab) {
     }
 }
 
+// Hooked from tab-manager's dom-ready and did-navigate handlers.
+async function onTabReady(tab) {
+    await ensureTokenForTab(tab)
+}
+
 // The indexer hit a 401 mid-sync and asked for a fresh token.
 async function onTokenNeeded({ accountKey } = {}) {
     await harvest({ accountKey: accountKey || 'default', force: true })
 }
+
+// Safety net: signing in after startup can easily miss the dom-ready/navigate
+// triggers (or the webapp may not have made its API calls during the first
+// capture window). Re-check the active tab periodically until a token sticks.
+setInterval(() => {
+    const tab = registry.tabManager?.getActiveTab()
+    if (!tab) {
+        return
+    }
+    ensureTokenForTab(tab).catch(() => {})
+}, 5 * 60 * 1000)
 
 export default { onTabReady, onTokenNeeded, harvest }

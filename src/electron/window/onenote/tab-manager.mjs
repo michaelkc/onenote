@@ -65,6 +65,10 @@ function setupWebviewHandlers(tab) {
                 persistState();
             }
 
+            // Post-sign-in navigations carry the webapp's API traffic — a good
+            // moment to (re)try the search-token harvest (debounced internally).
+            registry.searchHarvest?.onTabReady(tab);
+
             if (tab.id === activeTabId) {
                 registry.data.url = tab.url;
                 ipcRenderer.send('p3x-onenote-save', registry.data);
