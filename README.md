@@ -125,20 +125,15 @@ Right-click any tab to access:
 
 ## Search sign-in
 
-Global note search reads your notebooks over the Microsoft Graph API and needs its own sign-in (a one-time interactive flow — the app first tries to reuse the OneNote web session, then falls back to this). To enable it, register a free Azure app once:
+Global note search reads your notebooks over the Microsoft Graph API and needs its own sign-in (a one-time interactive flow — the app first tries to reuse the OneNote web session, then falls back to this). Open Search > **Sign in for search** (or the button in the search overlay): a browser window opens for the Microsoft sign-in, the token is stored locally (with a refresh token), and the index starts building.
 
-1. Open the [Azure portal → App registrations → New registration](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false).
-2. Name: e.g. `P3X OneNote Search`.
-3. Supported account types: **Personal Microsoft accounts only**.
-4. Redirect URI: platform **Mobile and desktop applications**, value `http://localhost` (no port — the app uses a dynamic loopback port).
-5. Register, then copy the **Application (client) ID**.
-6. Add it to the app settings file (`~/.config/p3x-onenote/config.json` on Linux, `%APPDATA%\p3x-onenote\config.json` on Windows, `~/Library/Application Support/p3x-onenote/config.json` on macOS):
+The app ships with a default Azure public client. To use your own app registration instead, set `searchClientId` in the app settings file (`~/.config/p3x-onenote/config.json` on Linux, `%APPDATA%\p3x-onenote\config.json` on Windows, `~/Library/Application Support/p3x-onenote/config.json` on macOS):
 
 ```json
 { "searchClientId": "00000000-0000-0000-0000-000000000000" }
 ```
 
-7. Restart P3X OneNote and use Search > Sign in for search (or the button in the search overlay). A browser window opens for the Microsoft sign-in; the token is stored locally (with a refresh token) and the index starts building.
+Registration requirements: **Personal Microsoft accounts only**, platform **Mobile and desktop applications**, redirect URI `http://localhost` (no port — the app uses a dynamic loopback port).
 
 Corporate/AAD-backed notebooks are not supported by search in this version (the sign-in targets personal accounts).
 

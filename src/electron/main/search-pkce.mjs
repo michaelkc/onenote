@@ -15,6 +15,11 @@ import { exchangeCode } from '../lib/search/token-endpoint.mjs'
 const SCOPES = 'Notes.Read User.Read offline_access openid profile'
 const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000
 
+// Public client for the P3X OneNote Search Azure app (personal accounts only,
+// redirect http://localhost). A public client id is not a secret — override
+// with the searchClientId setting to use your own app registration.
+export const DEFAULT_SEARCH_CLIENT_ID = '5aded502-c082-4e6f-9c80-d8dd6ff8077d'
+
 const log = (...args) => console.log('[P3X-Search]', ...args)
 
 let activeSignIn = null
@@ -108,14 +113,7 @@ export default function startSignIn({ accountKey: rawKey } = {}) {
         return activeSignIn
     }
 
-    const clientId = registry.conf.get('searchClientId')
-    if (!clientId) {
-        return Promise.reject(
-            new Error(
-                'Search sign-in is not configured: register an Azure app and set searchClientId in the P3X OneNote settings file (see README).'
-            )
-        )
-    }
+    const clientId = registry.conf.get('searchClientId') || DEFAULT_SEARCH_CLIENT_ID
 
     log(`starting interactive sign-in for ${key}`)
 

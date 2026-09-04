@@ -12,7 +12,7 @@ import accountKey from '../lib/search/account-key.mjs'
 import { decideTokenAction } from '../lib/search/token-refresh-policy.mjs'
 import { refreshAccessToken } from '../lib/search/token-endpoint.mjs'
 import validateTokenCandidates from './search-token-validate.mjs'
-import startPkceSignIn from './search-pkce.mjs'
+import startPkceSignIn, { DEFAULT_SEARCH_CLIENT_ID } from './search-pkce.mjs'
 
 const AUTH_CONF_KEY = 'searchAuth'
 const AUTH_MARGIN_MS = 5 * 60 * 1000
@@ -256,11 +256,7 @@ async function resolveAccessToken(key) {
         return null // a harvested webview token cannot be refreshed
     }
 
-    const clientId = registry.conf.get('searchClientId')
-    if (!clientId) {
-        log(`token for ${key} is stale and no searchClientId is configured to refresh it`)
-        return null
-    }
+    const clientId = registry.conf.get('searchClientId') || DEFAULT_SEARCH_CLIENT_ID
 
     log(`refreshing access token for ${key}`)
     try {
