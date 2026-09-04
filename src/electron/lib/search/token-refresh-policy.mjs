@@ -17,7 +17,8 @@ function base64UrlDecode(segment) {
     }
 }
 
-export function decodeJwtExp(token) {
+// The JWT's claims object, or null when the token is malformed.
+export function decodeJwtPayload(token) {
     if (typeof token !== 'string') {
         return null
     }
@@ -30,11 +31,25 @@ export function decodeJwtExp(token) {
         return null
     }
     try {
-        const exp = JSON.parse(payload).exp
-        return typeof exp === 'number' ? exp * 1000 : null
+        return JSON.parse(payload)
     } catch {
         return null
     }
+}
+
+export function decodeJwtExp(token) {
+    const exp = decodeJwtPayload(token)?.exp
+    return typeof exp === 'number' ? exp * 1000 : null
+}
+
+// The Microsoft account behind a token: preferred_username (personal
+// accounts), upn, or email — whichever claim is present.
+export function extractAccountFromToken(token) {
+    const claims = decodeJwtPayload(token)
+    if (!claims) {
+        return null
+    }
+    return claims.preferred_username || claims.upn || claims.email || null
 }
 
 export function decideTokenAction({ token, expiresOnMs, nowMs, marginMs = 5 * 60 * 1000 }) {

@@ -187,44 +187,70 @@ function mainMenu() {
         },
         {
             label: registry.lang.search?.title || 'Search',
-            submenu: [
-                {
-                    label: registry.lang.search?.searchNotes || 'Search notes',
-                    // The application-menu accelerator fires even while the
-                    // OneNote webview has focus, so no key interception needed.
-                    accelerator: 'CommandOrControl+Shift+E',
-                    click: () => {
-                        registry.window.onenote.webContents.send('p3x-onenote-action', {
-                            action: 'search-notes',
-                        })
+            submenu: (() => {
+                const lang = registry.lang.search || {}
+                const searchAuth = registry.conf.get('searchAuth') || {}
+                const accounts = Object.keys(searchAuth).filter((key) => searchAuth[key]?.accessToken)
+
+                const items = [
+                    {
+                        label: lang.searchNotes || 'Search notes',
+                        // The accelerator also has before-input-event / keydown
+                        // fallbacks for when a webview guest has focus.
+                        accelerator: 'CommandOrControl+Shift+E',
+                        click: () => {
+                            registry.window.onenote.webContents.send('p3x-onenote-action', {
+                                action: 'search-notes',
+                            })
+                        }
+                    },
+                ]
+
+                if (accounts.length > 0) {
+                    for (const key of accounts) {
+                        const account = searchAuth[key]?.account || key
+                        const signedInAs = lang.signedInAs || ((a) => `Search signed in as: ${a}`)
+                        items.push({ label: signedInAs(account), enabled: false })
                     }
-                },
-                {
-                    label: registry.lang.search?.rebuildIndex || 'Rebuild index',
-                    click: () => {
-                        registry.window.onenote.webContents.send('p3x-onenote-action', {
-                            action: 'search-rebuild-index',
-                        })
+                    items.push({
+                        label: lang.signOut || 'Sign out of search',
+                        click: () => {
+                            registry.search.clearToken()
+                        }
+                    })
+                } else {
+                    items.push({
+                        label: lang.signInForSearch || 'Sign in for search',
+                        click: () => {
+                            registry.window.onenote.webContents.send('p3x-onenote-action', {
+                                action: 'search-signin',
+                            })
+                        }
+                    })
+                }
+
+                items.push(
+                    { type: 'separator' },
+                    {
+                        label: lang.indexStatus || 'Index status',
+                        click: () => {
+                            registry.window.onenote.webContents.send('p3x-onenote-action', {
+                                action: 'search-index-status',
+                            })
+                        }
+                    },
+                    {
+                        label: lang.rebuildIndex || 'Rebuild index',
+                        click: () => {
+                            registry.window.onenote.webContents.send('p3x-onenote-action', {
+                                action: 'search-rebuild-index',
+                            })
+                        }
                     }
-                },
-                {
-                    label: registry.lang.search?.signInForSearch || 'Sign in for search',
-                    click: () => {
-                        registry.window.onenote.webContents.send('p3x-onenote-action', {
-                            action: 'search-signin',
-                        })
-                    }
-                },
-                {type: 'separator'},
-                {
-                    label: registry.lang.search?.indexStatus || 'Index status',
-                    click: () => {
-                        registry.window.onenote.webContents.send('p3x-onenote-action', {
-                            action: 'search-index-status',
-                        })
-                    }
-                },
-            ]
+                )
+
+                return items
+            })()
         },
         {
             label: registry.lang.menu.action,

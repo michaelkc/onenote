@@ -180,6 +180,16 @@ window.addEventListener('load', async () => {
         }
     };
 
+    // Ctrl+Shift+E toggles the search overlay while chrome elements have focus
+    // (the guest-webview path is handled by before-input-event in the main
+    // process; the menu accelerator covers the rest).
+    window.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && (event.key === 'E' || event.key === 'e')) {
+            event.preventDefault();
+            registry.searchOverlay?.toggle();
+        }
+    });
+
     // Mark UI ready
     registry.uiReady = true;
 

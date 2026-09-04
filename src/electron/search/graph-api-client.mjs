@@ -54,8 +54,29 @@ function sleep(ms, ct) {
     })
 }
 
-export default function createOneNoteApiClient({ getAccessToken, events = {}, fetchImpl }) {
+export default function createOneNoteApiClient({
+    getAccessToken,
+    events = {},
+    fetchImpl,
+    attemptTimeoutMs = ATTEMPT_TIMEOUT_MS,
+    baseRetryDelayMs = BASE_RETRY_DELAY_MS,
+}) {
     const fetchFn = fetchImpl ?? globalThis.fetch
+    const stats = { calls: 0, startedAt: Date.now() }
+
+    // A wedged attempt (the per-attempt timeout aborted it) is a transient
+    // failure the retry loop handles — only an external cancellation (ct) is
+    // fatal. Returns true when the caller should back off and retry.
+    function shouldRetryAttempt(attempt, attemptTimeout, ct) {
+        const timedOut = attemptTimeout.signal.aborted && !ct?.aborted
+        if (!timedOut) {
+            return false
+        }
+        if (attempt >= MAX_RETRIES) {
+            return false
+        }
+        return true
+    }
 
     async function getJson(url, ct) {
         for (let attempt = 0; ; attempt++) {
@@ -64,9 +85,10 @@ export default function createOneNoteApiClient({ getAccessToken, events = {}, fe
             const attemptTimeout = new AbortController()
             const onAbort = () => attemptTimeout.abort()
             ct?.addEventListener('abort', onAbort, { once: true })
-            const timer = setTimeout(() => attemptTimeout.abort(), ATTEMPT_TIMEOUT_MS)
+            const timer = setTimeout(() => attemptTimeout.abort(), attemptTimeoutMs)
 
             try {
+                stats.calls++
                 const response = await fetchFn(url, {
                     headers: { Authorization: `Bearer ${await getAccessToken()}` },
                     signal: attemptTimeout.signal,
@@ -80,13 +102,17 @@ export default function createOneNoteApiClient({ getAccessToken, events = {}, fe
                 if (!isTransient(response.status) || attempt >= MAX_RETRIES) {
                     throw new GraphApiError(response.status, body)
                 }
-
-                events.retrying?.(attempt + 1, MAX_RETRIES)
-                await sleep(BASE_RETRY_DELAY_MS * (attempt + 1), ct)
+            } catch (error) {
+                if (!shouldRetryAttempt(attempt, attemptTimeout, ct)) {
+                    throw error
+                }
             } finally {
                 clearTimeout(timer)
                 ct?.removeEventListener('abort', onAbort)
             }
+
+            events.retrying?.(attempt + 1, MAX_RETRIES)
+            await sleep(baseRetryDelayMs * (attempt + 1), ct)
         }
     }
 
@@ -95,9 +121,10 @@ export default function createOneNoteApiClient({ getAccessToken, events = {}, fe
             const attemptTimeout = new AbortController()
             const onAbort = () => attemptTimeout.abort()
             ct?.addEventListener('abort', onAbort, { once: true })
-            const timer = setTimeout(() => attemptTimeout.abort(), ATTEMPT_TIMEOUT_MS)
+            const timer = setTimeout(() => attemptTimeout.abort(), attemptTimeoutMs)
 
             try {
+                stats.calls++
                 const response = await fetchFn(url, {
                     headers: { Authorization: `Bearer ${await getAccessToken()}` },
                     signal: attemptTimeout.signal,
@@ -111,13 +138,17 @@ export default function createOneNoteApiClient({ getAccessToken, events = {}, fe
                 if (!isTransient(response.status) || attempt >= MAX_RETRIES) {
                     throw new GraphApiError(response.status, html)
                 }
-
-                events.retrying?.(attempt + 1, MAX_RETRIES)
-                await sleep(BASE_RETRY_DELAY_MS * (attempt + 1), ct)
+            } catch (error) {
+                if (!shouldRetryAttempt(attempt, attemptTimeout, ct)) {
+                    throw error
+                }
             } finally {
                 clearTimeout(timer)
                 ct?.removeEventListener('abort', onAbort)
             }
+
+            events.retrying?.(attempt + 1, MAX_RETRIES)
+            await sleep(baseRetryDelayMs * (attempt + 1), ct)
         }
     }
 
@@ -175,6 +206,10 @@ export default function createOneNoteApiClient({ getAccessToken, events = {}, fe
     }
 
     return {
+        // Request counter for the throttle display (Graph budget is
+        // 120 req/min + 400 req/hour per user, shared with other clients).
+        getStats: () => ({ ...stats }),
+
         async getNotebooks(ct) {
             const url =
                 GRAPH_BASE + '/notebooks?$expand=sections,sectionGroups($expand=sections,sectionGroups)'

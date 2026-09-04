@@ -100,4 +100,64 @@ describe('sqlite store', () => {
         expect(await store.search('')).toEqual([])
         expect(await store.search('   ')).toEqual([])
     })
+
+    it('records, updates and toggles notebooks', async () => {
+        await store.setNotebooks([
+            { id: 'nb1', displayName: 'Work' },
+            { id: 'nb2', displayName: 'Personal' },
+        ])
+        let notebooks = await store.getNotebooks()
+        expect(notebooks).toHaveLength(2)
+        expect(notebooks.every((nb) => nb.enabled)).toBe(true)
+
+        await store.setNotebookEnabled('nb1', false)
+        notebooks = await store.getNotebooks()
+        expect(notebooks.find((nb) => nb.id === 'nb1').enabled).toBe(false)
+        expect(notebooks.find((nb) => nb.id === 'nb2').enabled).toBe(true)
+
+        // re-registering preserves the enabled flag and updates the name
+        await store.setNotebooks([{ id: 'nb1', displayName: 'Work 2' }])
+        notebooks = await store.getNotebooks()
+        expect(notebooks.find((nb) => nb.id === 'nb1').displayName).toBe('Work 2')
+        expect(notebooks.find((nb) => nb.id === 'nb1').enabled).toBe(false)
+    })
+
+    it('reports per-notebook stats', async () => {
+        await store.setNotebooks([{ id: 'nb1', displayName: 'Main' }])
+        await store.indexNote(note(), 'content')
+        await store.indexNote(note({ id: 'n2', title: 'Second' }), 'more content')
+        const stats = await store.getNotebookStats()
+        expect(stats).toHaveLength(1)
+        expect(stats[0].displayName).toBe('Main')
+        expect(stats[0].pages).toBe(2)
+        expect(stats[0].lastModifiedDateTime).toBe('2026-01-01T00:00:00Z')
+    })
+
+    it('logs index activity and prunes it to the cap', async () => {
+        for (let i = 0; i < 55; i++) {
+            await store.indexNote(note({ id: `n${i}`, title: `Note ${i}` }), 'content')
+        }
+        const activity = await store.getRecentActivity(100)
+        expect(activity).toHaveLength(50)
+        expect(activity[0].title).toBe('Note 54')
+        expect(activity[0].action).toBe('index')
+        expect(activity[0].notebookName).toBe('Main')
+    })
+
+    it('logs removals in the activity', async () => {
+        await store.indexNote(note(), 'content')
+        await store.removeNote('n1')
+        const activity = await store.getRecentActivity()
+        expect(activity[0]).toMatchObject({ noteId: 'n1', action: 'remove', title: 'Meeting notes' })
+    })
+
+    it('reset clears notes and sync bookkeeping but keeps notebook config', async () => {
+        await store.setNotebooks([{ id: 'nb1', displayName: 'Work' }])
+        await store.indexNote(note(), 'content')
+        await store.setMeta('last_sync_at', '2026-01-01T00:00:00Z')
+        await store.reset()
+        expect(await store.getIndexedNotes()).toHaveLength(0)
+        expect(await store.getMeta('last_sync_at')).toBe(null)
+        expect(await store.getNotebooks()).toHaveLength(1)
+    })
 })

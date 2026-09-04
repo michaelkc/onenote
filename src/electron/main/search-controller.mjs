@@ -9,7 +9,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import registry from '../registry.mjs'
 import accountKey from '../lib/search/account-key.mjs'
-import { decideTokenAction } from '../lib/search/token-refresh-policy.mjs'
+import { decideTokenAction, extractAccountFromToken } from '../lib/search/token-refresh-policy.mjs'
 import { refreshAccessToken } from '../lib/search/token-endpoint.mjs'
 import validateTokenCandidates from './search-token-validate.mjs'
 import startPkceSignIn, { DEFAULT_SEARCH_CLIENT_ID } from './search-pkce.mjs'
@@ -23,6 +23,7 @@ const log = (...args) => console.log('[P3X-Search]', ...args)
 let child = null
 let nextId = 1
 let shuttingDown = false
+let gracefulExit = false
 
 // id -> { resolve, reject } for request/response messages from the child.
 const pending = new Map()
@@ -53,8 +54,11 @@ function spawnChild() {
         }
         pending.clear()
         activeSync = null
+        const unexpected = !shuttingDown && !gracefulExit
         child = null
-        if (!shuttingDown) {
+        shuttingDown = false
+        gracefulExit = false
+        if (unexpected) {
             log('indexer exited unexpectedly')
         }
     })
@@ -106,6 +110,8 @@ async function onChildMessage(message) {
         case 'search-results':
         case 'count':
         case 'meta':
+        case 'stats-result':
+        case 'set-notebook-done':
             resolvePending(message.id, message)
             break
 
@@ -114,7 +120,9 @@ async function onChildMessage(message) {
             break
 
         case 'shutdown-ack':
-            shuttingDown = false
+            // The child closed its stores and is exiting — the exit event that
+            // follows is expected, not a crash.
+            gracefulExit = true
             try {
                 child?.kill()
             } catch {}
@@ -225,12 +233,15 @@ function clearToken(rawKey) {
     if (!rawKey) {
         // Session data is being wiped — no harvested token survives it.
         registry.conf.delete(AUTH_CONF_KEY)
-        return
+    } else {
+        const key = accountKey(rawKey)
+        const auth = registry.conf.get(AUTH_CONF_KEY) || {}
+        delete auth[key]
+        registry.conf.set(AUTH_CONF_KEY, auth)
     }
-    const key = accountKey(rawKey)
-    const auth = registry.conf.get(AUTH_CONF_KEY) || {}
-    delete auth[key]
-    registry.conf.set(AUTH_CONF_KEY, auth)
+    // The Search menu renders the signed-in account — rebuild it on change.
+    registry.mainMenu?.()
+    registry.mainTray?.()
 }
 
 // A usable access token for a sync: the stored one while fresh, refreshed via
@@ -270,18 +281,23 @@ async function resolveAccessToken(key) {
 }
 
 // Interactive PKCE sign-in (system browser + loopback redirect). Stores the
-// bundle, unblocks a waiting sync, and kicks off the startup sync.
+// bundle under the account the token identifies, unblocks a waiting sync, and
+// kicks off the startup sync.
 async function startSignIn({ accountKey: rawKey } = {}) {
-    const key = accountKey(rawKey)
     try {
-        const { bundle } = await startPkceSignIn({ accountKey: key })
+        const { bundle } = await startPkceSignIn({ accountKey: rawKey })
+        const account = extractAccountFromToken(bundle.accessToken) || rawKey || 'default'
+        const key = accountKey(account)
         setStoredToken(key, {
             accessToken: bundle.accessToken,
             refreshToken: bundle.refreshToken,
             expiresOn: bundle.expiresOn,
             source: 'pkce',
+            account,
             acquiredAt: Date.now(),
         })
+        registry.mainMenu()
+        registry.mainTray()
 
         if (awaitingToken && (awaitingToken.accountKey === null || awaitingToken.accountKey === key) && child) {
             awaitingToken = null
@@ -289,9 +305,10 @@ async function startSignIn({ accountKey: rawKey } = {}) {
         }
 
         requestSync({ mode: 'auto', accountKey: key }).catch(() => {})
-        return { success: true }
+        log(`signed in for ${account} (key ${key})`)
+        return { success: true, accountKey: key }
     } catch (error) {
-        log(`sign-in failed for ${key}: ${error.message}`)
+        log(`sign-in failed: ${error.message}`)
         return { success: false, message: error.message }
     }
 }
@@ -374,6 +391,43 @@ async function query(queryText, rawKey) {
     }
 }
 
+// The index-status view's data: per-notebook stats, recent activity, and the
+// controller-side sync state (live progress reaches the renderer via events).
+async function getIndexStatus(rawKey) {
+    const key = accountKey(rawKey)
+    const status = {
+        notebooks: [],
+        activity: [],
+        lastSyncAt: null,
+        syncing: activeSync?.accountKey === key,
+        lastSyncStats,
+        syncErrors: [...syncErrors],
+        authState: getAuthState(key),
+    }
+    if (child) {
+        try {
+            const result = await request({ type: 'stats', dbPath: getDbPath(key) })
+            status.notebooks = result.notebooks
+            status.activity = result.activity
+            status.lastSyncAt = result.lastSyncAt
+        } catch {}
+    }
+    return status
+}
+
+async function setNotebookEnabled({ accountKey: rawKey, notebookId, enabled } = {}) {
+    const key = accountKey(rawKey)
+    if (!child || !notebookId) {
+        return { ok: false }
+    }
+    try {
+        await request({ type: 'set-notebook', dbPath: getDbPath(key), notebookId, enabled })
+        return { ok: true }
+    } catch {
+        return { ok: false }
+    }
+}
+
 async function count(rawKey) {
     const key = accountKey(rawKey)
     const dbPath = getDbPath(key)
@@ -422,6 +476,8 @@ export default {
     shutdown,
     query,
     count,
+    getIndexStatus,
+    setNotebookEnabled,
     requestSync,
     validateTokenCandidates: validateAndStoreToken,
     startSignIn,

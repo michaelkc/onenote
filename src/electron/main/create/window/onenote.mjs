@@ -34,6 +34,19 @@ function createWindow() {
             return { action: 'deny' }
         })
 
+        // The Ctrl+Shift+E accelerator is also registered on the Search menu
+        // item, but menu accelerators are unreliable while a <webview> guest
+        // has focus on some platforms — intercept the key on the guest input
+        // path as well.
+        contents.on('before-input-event', (event, input) => {
+            if (input.type === 'keyDown' && input.control && input.shift && !input.alt && !input.meta && (input.key === 'E' || input.key === 'e')) {
+                event.preventDefault();
+                win.webContents.send('p3x-onenote-action', {
+                    action: 'search-notes'
+                })
+            }
+        })
+
         // Override Accept-Language header on all requests to Microsoft domains
         contents.session.webRequest.onBeforeSendHeaders(
             { urls: ['*://*.onenote.com/*', '*://*.live.com/*', '*://*.microsoft.com/*', '*://*.office.com/*', '*://*.sharepoint.com/*', '*://*.office365.com/*', '*://*.microsoftonline.com/*', '*://onenote.cloud.microsoft/*', '*://*.cloud.microsoft/*'] },

@@ -13,6 +13,7 @@ import { SNIPPET_MARK_OPEN, SNIPPET_MARK_CLOSE } from '../lib/search/parse-snipp
 const MAX_RESULTS = 100
 const SNIPPET_ELLIPSIS = '…'
 const SNIPPET_TOKENS = 12
+const ACTIVITY_MAX = 50
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS notes (
@@ -49,6 +50,20 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS notebooks (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS activity (
+    ts TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    notebook_name TEXT NOT NULL,
+    action TEXT NOT NULL
+);
 `
 
 function readNote(row) {
@@ -76,6 +91,23 @@ export default function createSqliteStore(dbPath) {
         return run
     }
 
+    function logActivity(note, action) {
+        db.run(
+            'INSERT INTO activity (ts, note_id, title, notebook_name, action) VALUES (?, ?, ?, ?, ?)',
+            new Date().toISOString(),
+            note.id,
+            note.title,
+            note.notebookName ?? '',
+            action
+        )
+        db.run(
+            `DELETE FROM activity WHERE rowid NOT IN (
+                 SELECT rowid FROM activity ORDER BY ts DESC, rowid DESC LIMIT ?
+             )`,
+            ACTIVITY_MAX
+        )
+    }
+
     return {
         indexNote(note, content) {
             return exclusive(() => {
@@ -99,11 +131,16 @@ export default function createSqliteStore(dbPath) {
                     note.webUrl ?? null,
                     content
                 )
+                logActivity(note, 'index')
             })
         },
 
         removeNote(noteId) {
             return exclusive(() => {
+                const row = db.get('SELECT id, title, notebook_name FROM notes WHERE id = ?', noteId)
+                if (row) {
+                    logActivity({ id: row.id, title: row.title, notebookName: row.notebook_name }, 'remove')
+                }
                 db.run('DELETE FROM notes WHERE id = ?', noteId)
             })
         },
@@ -170,6 +207,75 @@ export default function createSqliteStore(dbPath) {
                     key,
                     value
                 )
+            })
+        },
+
+        // Notebook configuration: the notebooks seen during sync, and which of
+        // them are in scope for indexing (default: all).
+        setNotebooks(notebooks) {
+            return exclusive(() => {
+                for (const notebook of notebooks) {
+                    db.run(
+                        `INSERT INTO notebooks (id, display_name) VALUES (?, ?)
+                         ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name`,
+                        notebook.id,
+                        notebook.displayName ?? ''
+                    )
+                }
+            })
+        },
+
+        getNotebooks() {
+            return exclusive(() => {
+                const rows = db.all('SELECT id, display_name, enabled FROM notebooks ORDER BY display_name')
+                return rows.map((row) => ({
+                    id: row.id,
+                    displayName: row.display_name,
+                    enabled: row.enabled === 1,
+                }))
+            })
+        },
+
+        setNotebookEnabled(notebookId, enabled) {
+            return exclusive(() => {
+                db.run('UPDATE notebooks SET enabled = ? WHERE id = ?', enabled ? 1 : 0, notebookId)
+            })
+        },
+
+        getNotebookStats() {
+            return exclusive(() => {
+                const rows = db.all(
+                    `SELECT nb.id, nb.display_name, nb.enabled,
+                            COUNT(n.rowid) AS pages,
+                            MAX(n.last_modified) AS last_modified
+                     FROM notebooks nb
+                     LEFT JOIN notes n ON n.notebook_name = nb.display_name
+                     GROUP BY nb.id
+                     ORDER BY nb.display_name`
+                )
+                return rows.map((row) => ({
+                    id: row.id,
+                    displayName: row.display_name,
+                    enabled: row.enabled === 1,
+                    pages: row.pages,
+                    lastModifiedDateTime: row.last_modified,
+                }))
+            })
+        },
+
+        getRecentActivity(limit = 20) {
+            return exclusive(() => {
+                const rows = db.all(
+                    'SELECT ts, note_id, title, notebook_name, action FROM activity ORDER BY ts DESC, rowid DESC LIMIT ?',
+                    limit
+                )
+                return rows.map((row) => ({
+                    ts: row.ts,
+                    noteId: row.note_id,
+                    title: row.title,
+                    notebookName: row.notebook_name,
+                    action: row.action,
+                }))
             })
         },
 

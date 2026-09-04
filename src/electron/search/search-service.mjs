@@ -38,6 +38,9 @@ export default function createSearchService({ api, store, events = {}, notebookF
         const indexedNotes = await store.getIndexedNotes()
         const indexed = new Map(indexedNotes.map((n) => [n.id, n]))
         const notebooks = await api.getNotebooks(ct)
+        // Record the notebooks we saw so the config view can list them (and
+        // toggle their indexing scope) even before any note is indexed.
+        await store.setNotebooks(notebooks.map((nb) => ({ id: nb.id, displayName: nb.displayName })))
         const sections = flattenSections(notebooks, notebookFilter)
         stats.sectionsTotal = sections.length
 

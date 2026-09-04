@@ -80,6 +80,18 @@ ipcMain.handle('p3x-onenote-search-signin', function (event, data = {}) {
     return registry.search.startSignIn({ accountKey: data.accountKey })
 })
 
+ipcMain.handle('p3x-onenote-search-status', function (event, data = {}) {
+    return registry.search.getIndexStatus(data.accountKey)
+})
+
+ipcMain.handle('p3x-onenote-search-set-notebook', function (event, data = {}) {
+    return registry.search.setNotebookEnabled({
+        accountKey: data.accountKey,
+        notebookId: data.notebookId,
+        enabled: data.enabled,
+    })
+})
+
 
 ipcMain.handle('p3x-onenote-bookmarks-export', async () => {
     const bookmarks = registry.conf.get('bookmarks') || []

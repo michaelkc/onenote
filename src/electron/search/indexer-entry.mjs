@@ -60,13 +60,18 @@ async function runSync(message) {
                 post({ type: 'event', event: { kind: 'retrying', attempt, maxAttempts } }),
         },
     })
+    // Notebook scope: enabled set from the store; an empty table (first sync)
+    // means "all notebooks", so the filter only applies once the user has
+    // explicitly disabled something.
+    const enabledIds = new Set((await store.getNotebooks()).filter((n) => n.enabled).map((n) => n.id))
     const service = createSearchService({
         api,
         store,
+        notebookFilter: enabledIds.size === 0 ? undefined : (nb) => enabledIds.has(nb.id),
         events: {
             syncError: (context, error) =>
                 post({ type: 'event', event: { kind: 'sync-error', context, message: errorMessage(error) } }),
-            progress: (event) => post({ type: 'event', event: { kind: 'progress', ...event } }),
+            progress: (event) => post({ type: 'event', event: { kind: 'progress', calls: api.getStats().calls, ...event } }),
         },
     })
 
@@ -75,6 +80,7 @@ async function runSync(message) {
 
     const finish = (extra = {}) => {
         stats.durationMs = Date.now() - startedAt
+        stats.calls = api.getStats().calls
         post({ id, type: 'sync-done', stats: { ...stats, ...extra } })
     }
 
@@ -161,6 +167,25 @@ port.on('message', (event) => {
                 const lastSyncAt = await store.getMeta('last_sync_at')
                 const indexedCount = (await store.getIndexedNotes()).length
                 post({ id: message.id, type: 'meta', lastSyncAt, indexedCount })
+                break
+            }
+
+            case 'stats': {
+                const store = storeFor(message.dbPath)
+                post({
+                    id: message.id,
+                    type: 'stats-result',
+                    notebooks: await store.getNotebookStats(),
+                    activity: await store.getRecentActivity(20),
+                    lastSyncAt: await store.getMeta('last_sync_at'),
+                })
+                break
+            }
+
+            case 'set-notebook': {
+                const store = storeFor(message.dbPath)
+                await store.setNotebookEnabled(message.notebookId, message.enabled)
+                post({ id: message.id, type: 'set-notebook-done', notebookId: message.notebookId, enabled: message.enabled })
                 break
             }
 

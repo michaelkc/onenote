@@ -33,6 +33,7 @@ function fakeApi({ notesBySection = {}, contentByNote = {}, failSections = new S
 function fakeStore() {
     const notes = new Map()
     const meta = new Map()
+    const notebooks = new Map()
     return {
         async indexNote(entry, content) {
             notes.set(entry.id, { ...entry, content })
@@ -56,8 +57,26 @@ function fakeStore() {
         async setMeta(key, value) {
             meta.set(key, value)
         },
+        async setNotebooks(list) {
+            for (const nb of list) {
+                if (!notebooks.has(nb.id)) {
+                    notebooks.set(nb.id, { ...nb, enabled: true })
+                }
+            }
+        },
+        async getNotebooks() {
+            return [...notebooks.values()]
+        },
+        async setNotebookEnabled() {},
+        async getNotebookStats() {
+            return []
+        },
+        async getRecentActivity() {
+            return []
+        },
         async close() {},
         state: notes,
+        notebookState: notebooks,
     }
 }
 
@@ -213,6 +232,19 @@ describe('search service sync', () => {
 
         expect(store.state.has('stale')).toBe(false)
         expect(store.state.has('a')).toBe(true)
+    })
+
+    it('records the notebooks it walks', async () => {
+        const api = fakeApi({
+            notesBySection: { s1: [note('a', 's1', ts(1))] },
+            contentByNote: { a: 'content' },
+        })
+        const store = fakeStore()
+        const { sync } = createSearchService({ api, store, events: events() })
+
+        await sync({ mode: 'incremental' })
+
+        expect([...store.notebookState.values()].map((nb) => nb.id)).toEqual(['nb1'])
     })
 
     it('applies the notebook filter', async () => {

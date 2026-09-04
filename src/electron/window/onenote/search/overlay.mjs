@@ -1,7 +1,8 @@
-// The search overlay: a positioned panel over the webview container with a
-// search box and the list of notes matching the query. Arrow keys move the
-// selection, Enter (or a click) opens the note in the OneNote webapp via its
-// deep link (full navigation for now), Esc or a backdrop click closes.
+// The search overlay: a positioned panel over the webview container with two
+// views — Search (query box + matching notes) and Index (sync state, notebook
+// configuration, per-notebook stats, recent activity, errors). Arrow keys move
+// the selection, Enter (or a click) opens the note in the OneNote webapp via
+// its deep link (full navigation for now), Esc or a backdrop click closes.
 // Indexed content is only ever rendered as text nodes + <mark> elements built
 // from parseSnippet segments — never as HTML.
 
@@ -16,6 +17,7 @@ const overlay = () => document.getElementById('p3x-search-overlay')
 
 let built = false
 let visible = false
+let mode = 'search' // 'search' | 'index'
 let accountKey = 'default'
 let results = []
 let activeIndex = -1
@@ -23,8 +25,13 @@ let querySeq = 0
 let debounceTimer = null
 let lastProgress = null
 let statusTimer = null
+let indexStatus = null
 
-let inputEl, listEl, emptyEl, statusEl, rebuildBtn, signinBtn
+let inputEl, listEl, emptyEl, statusEl, signinBtn
+let searchViewEl, indexViewEl
+let tabSearchBtn, tabIndexBtn
+let indexStateEl, indexErrorsEl, indexErrorsListEl, indexNotebooksEl, indexActivityEl
+let syncNowBtn, indexRebuildBtn
 
 // ── DOM ─────────────────────────────────────────────────────────────
 
@@ -38,23 +45,62 @@ function build() {
     root.innerHTML = `
         <div class="p3x-search-panel">
             <div class="p3x-search-header">
-                <input id="p3x-search-input" class="p3x-dialog-input" type="text"
-                    placeholder="${lang('placeholder', 'Search notes...')}" autocomplete="off">
+                <div class="p3x-search-tabs">
+                    <button id="p3x-search-tab-search" class="p3x-tab-btn p3x-tab-active">${registry.lang.search?.title || 'Search'}</button>
+                    <button id="p3x-search-tab-index" class="p3x-tab-btn">${lang('tabIndex', 'Index')}</button>
+                </div>
                 <button id="p3x-search-close" class="p3x-btn" title="${registry.lang.button?.cancel || 'Cancel'}">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <div id="p3x-search-status" class="p3x-search-status"></div>
-            <div id="p3x-search-results" class="p3x-search-results">
-                <ul class="p3x-search-list"></ul>
-                <div class="p3x-search-empty p3x-hidden"></div>
+
+            <div id="p3x-search-view">
+                <div class="p3x-search-input-row">
+                    <input id="p3x-search-input" class="p3x-dialog-input" type="text"
+                        placeholder="${lang('placeholder', 'Search notes...')}" autocomplete="off">
+                </div>
+                <div id="p3x-search-status" class="p3x-search-status"></div>
+                <div class="p3x-search-results">
+                    <ul class="p3x-search-list"></ul>
+                    <div class="p3x-search-empty p3x-hidden"></div>
+                </div>
+                <div class="p3x-search-footer">
+                    <span class="p3x-search-hint">${lang('openHint', 'Arrow keys select · Enter opens · Esc closes')}</span>
+                    <span class="p3x-search-footer-actions">
+                        <button id="p3x-search-signin" class="p3x-btn p3x-hidden">${lang('signInForSearch', 'Sign in for search')}</button>
+                    </span>
+                </div>
             </div>
-            <div class="p3x-search-footer">
-                <span class="p3x-search-hint">${lang('openHint', 'Arrow keys select · Enter opens · Esc closes')}</span>
-                <span class="p3x-search-footer-actions">
-                    <button id="p3x-search-signin" class="p3x-btn p3x-hidden">${lang('signInForSearch', 'Sign in for search')}</button>
-                    <button id="p3x-search-rebuild" class="p3x-btn">${lang('rebuildIndex', 'Rebuild index')}</button>
-                </span>
+
+            <div id="p3x-index-view" class="p3x-hidden">
+                <div id="p3x-index-state" class="p3x-search-status"></div>
+                <div class="p3x-index-scroll">
+                    <div id="p3x-index-errors" class="p3x-index-errors p3x-hidden">
+                        <div class="p3x-index-section-title">${lang('sectionErrors', 'Recent errors')}</div>
+                        <ul id="p3x-index-errors-list" class="p3x-index-activity"></ul>
+                    </div>
+                    <div class="p3x-index-section-title">${lang('sectionNotebooks', 'Notebooks')}</div>
+                    <table class="p3x-index-table">
+                        <thead>
+                            <tr>
+                                <th>${lang('colNotebook', 'Notebook')}</th>
+                                <th class="p3x-index-num">${lang('colPages', 'Pages')}</th>
+                                <th>${lang('colLastUpdated', 'Last updated')}</th>
+                                <th class="p3x-index-num">${lang('colIndex', 'Index')}</th>
+                            </tr>
+                        </thead>
+                        <tbody id="p3x-index-notebooks"></tbody>
+                    </table>
+                    <div class="p3x-index-section-title">${lang('sectionRecent', 'Recently indexed')}</div>
+                    <ul id="p3x-index-activity" class="p3x-index-activity"></ul>
+                </div>
+                <div class="p3x-search-footer">
+                    <span class="p3x-search-hint">${lang('notebookHint', 'Notebook changes apply on the next sync.')}</span>
+                    <span class="p3x-search-footer-actions">
+                        <button id="p3x-index-sync-now" class="p3x-btn">${lang('syncNow', 'Sync now')}</button>
+                        <button id="p3x-index-rebuild" class="p3x-btn">${lang('rebuildIndex', 'Rebuild index')}</button>
+                    </span>
+                </div>
             </div>
         </div>`
 
@@ -62,8 +108,18 @@ function build() {
     listEl = root.querySelector('.p3x-search-list')
     emptyEl = root.querySelector('.p3x-search-empty')
     statusEl = root.querySelector('#p3x-search-status')
-    rebuildBtn = root.querySelector('#p3x-search-rebuild')
     signinBtn = root.querySelector('#p3x-search-signin')
+    searchViewEl = root.querySelector('#p3x-search-view')
+    indexViewEl = root.querySelector('#p3x-index-view')
+    tabSearchBtn = root.querySelector('#p3x-search-tab-search')
+    tabIndexBtn = root.querySelector('#p3x-search-tab-index')
+    indexStateEl = root.querySelector('#p3x-index-state')
+    indexErrorsEl = root.querySelector('#p3x-index-errors')
+    indexErrorsListEl = root.querySelector('#p3x-index-errors-list')
+    indexNotebooksEl = root.querySelector('#p3x-index-notebooks')
+    indexActivityEl = root.querySelector('#p3x-index-activity')
+    syncNowBtn = root.querySelector('#p3x-index-sync-now')
+    indexRebuildBtn = root.querySelector('#p3x-index-rebuild')
 
     inputEl.addEventListener('input', () => {
         clearTimeout(debounceTimer)
@@ -80,11 +136,11 @@ function build() {
         } else if (event.key === 'Enter') {
             event.preventDefault()
             openItem(activeIndex >= 0 ? activeIndex : 0)
-        } else if (event.key === 'Escape') {
-            event.preventDefault()
-            hide()
         }
     })
+
+    tabSearchBtn.addEventListener('click', () => setMode('search'))
+    tabIndexBtn.addEventListener('click', () => setMode('index'))
 
     root.querySelector('#p3x-search-close').addEventListener('click', hide)
     root.addEventListener('mousedown', (event) => {
@@ -93,44 +149,32 @@ function build() {
         }
     })
 
-    rebuildBtn.addEventListener('click', async () => {
-        const result = await ipcRenderer.invoke('p3x-onenote-search-sync-request', {
-            mode: 'full',
-            accountKey,
-        })
-        if (result?.started) {
-            setStatus(lang('rebuildStarted', 'Rebuilding the index...'))
-        } else if (result?.reason === 'auth') {
-            setStatus(lang('signInRequired', 'Index unavailable — sign in to OneNote.'))
-            showSignInButton(true)
-        } else {
-            setStatus(lang('syncBusy', 'An index sync is already running.'))
+    signinBtn.addEventListener('click', () => signIn())
+
+    syncNowBtn.addEventListener('click', () => triggerSync('incremental'))
+    indexRebuildBtn.addEventListener('click', () => triggerSync('full'))
+
+    // Esc closes from anywhere in the overlay (a native <dialog> open above us
+    // keeps its own Esc handling).
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && visible && !document.getElementById('p3x-dialog')?.open) {
+            hide()
         }
     })
-
-    signinBtn.addEventListener('click', () => signIn())
 }
 
-// ── Interactive sign-in (PKCE) ──────────────────────────────────────
+// ── Mode (Search / Index views) ─────────────────────────────────────
 
-function showSignInButton(show) {
-    signinBtn.classList.toggle('p3x-hidden', !show)
-}
-
-async function signIn() {
-    showSignInButton(false)
-    setStatus(lang('signInOpened', 'A browser window opened — sign in and come back here.'))
-    try {
-        const result = await ipcRenderer.invoke('p3x-onenote-search-signin', { accountKey })
-        if (result?.success) {
-            await refreshStatus()
-        } else {
-            setStatus(result?.message || lang('signInFailed', 'Sign-in failed — try again.'))
-            showSignInButton(true)
-        }
-    } catch (error) {
-        setStatus((error?.message || '').slice(0, 200) || lang('signInFailed', 'Sign-in failed — try again.'))
-        showSignInButton(true)
+function setMode(next) {
+    mode = next
+    tabSearchBtn.classList.toggle('p3x-tab-active', mode === 'search')
+    tabIndexBtn.classList.toggle('p3x-tab-active', mode === 'index')
+    searchViewEl.classList.toggle('p3x-hidden', mode !== 'search')
+    indexViewEl.classList.toggle('p3x-hidden', mode !== 'index')
+    if (mode === 'index') {
+        refreshIndexStatus()
+    } else {
+        inputEl.focus()
     }
 }
 
@@ -141,12 +185,24 @@ async function show() {
     visible = true
     overlay().classList.remove('p3x-hidden')
     bindAccount(registry.tabManager?.getActiveTab())
-    inputEl.focus()
-    inputEl.select()
-    refreshStatus()
-    if (inputEl.value.trim() !== '') {
-        runQuery()
+    if (mode === 'search') {
+        inputEl.focus()
+        inputEl.select()
+        refreshStatus()
+        if (inputEl.value.trim() !== '') {
+            runQuery()
+        }
+    } else {
+        refreshIndexStatus()
     }
+}
+
+function showIndex() {
+    build()
+    visible = true
+    overlay().classList.remove('p3x-hidden')
+    bindAccount(registry.tabManager?.getActiveTab())
+    setMode('index')
 }
 
 function hide() {
@@ -175,8 +231,12 @@ function bindAccount(tab) {
     activeIndex = -1
     inputEl.value = ''
     lastProgress = null
+    indexStatus = null
     renderResults()
     refreshStatus()
+    if (mode === 'index') {
+        refreshIndexStatus()
+    }
 }
 
 function onTabSwitched(tab) {
@@ -186,7 +246,7 @@ function onTabSwitched(tab) {
     bindAccount(tab)
 }
 
-// ── Queries ─────────────────────────────────────────────────────────
+// ── Search view ─────────────────────────────────────────────────────
 
 async function runQuery() {
     const query = inputEl.value.trim()
@@ -311,7 +371,33 @@ function openItem(index) {
     }
 }
 
-// ── Status ──────────────────────────────────────────────────────────
+// ── Interactive sign-in (PKCE) ──────────────────────────────────────
+
+function showSignInButton(show) {
+    signinBtn.classList.toggle('p3x-hidden', !show)
+}
+
+async function signIn() {
+    showSignInButton(false)
+    setStatus(lang('signInOpened', 'A browser window opened — sign in and come back here.'))
+    try {
+        const result = await ipcRenderer.invoke('p3x-onenote-search-signin', { accountKey })
+        if (result?.success) {
+            await refreshStatus()
+            if (mode === 'index') {
+                await refreshIndexStatus()
+            }
+        } else {
+            setStatus(result?.message || lang('signInFailed', 'Sign-in failed — try again.'))
+            showSignInButton(true)
+        }
+    } catch (error) {
+        setStatus((error?.message || '').slice(0, 200) || lang('signInFailed', 'Sign-in failed — try again.'))
+        showSignInButton(true)
+    }
+}
+
+// ── Status (search view) ────────────────────────────────────────────
 
 function setStatus(text) {
     clearTimeout(statusTimer)
@@ -360,10 +446,175 @@ async function refreshStatus() {
     showSignInButton(state.authState !== 'ok' && !state.syncing)
 }
 
+// ── Index view ──────────────────────────────────────────────────────
+
+function formatClock(iso) {
+    const date = new Date(iso)
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString()
+}
+
+async function refreshIndexStatus() {
+    try {
+        indexStatus = await ipcRenderer.invoke('p3x-onenote-search-status', { accountKey })
+    } catch {
+        indexStatus = null
+    }
+    renderIndexStatus()
+}
+
+function renderIndexStatus() {
+    const s = indexStatus
+    if (!s) {
+        indexStateEl.textContent = ''
+        return
+    }
+
+    // State line
+    let text = ''
+    if (s.syncing) {
+        const p = lastProgress || {}
+        text = lang('syncing', (a, b) => `Indexing notes... (${a}/${b} sections)`)(p.sectionsDone ?? 0, p.sectionsTotal ?? 0)
+        if (p.notesDone) {
+            text += ` · ${p.notesDone} ${lang('notesLabel', 'notes')}`
+        }
+        if (typeof p.calls === 'number') {
+            text += ` · ${lang('requestsLabel', (calls) => `${calls} requests (budget 120/min, 400/hr)`)(p.calls)}`
+        }
+    } else {
+        const totalPages = (s.notebooks || []).reduce((sum, nb) => sum + (nb.pages || 0), 0)
+        text = `${lang('idleState', 'Idle')} · ${lang('indexedCount', (count) => `Indexed ${count} notes.`)(totalPages)}`
+        if (s.lastSyncAt) {
+            const time = formatTime(s.lastSyncAt)
+            if (time) {
+                text += ' ' + lang('lastSync', (t) => `Last updated: ${t}`)(time)
+            }
+        }
+        const stats = s.lastSyncStats
+        if (stats && !stats.error) {
+            text += ' · ' + lang('syncSummary', (indexed, removed, seconds) => `${indexed} updated, ${removed} removed in ${seconds}s`)(
+                stats.indexed ?? 0,
+                stats.removed ?? 0,
+                Math.round((stats.durationMs ?? 0) / 1000)
+            )
+            if (typeof stats.calls === 'number') {
+                text += ' · ' + lang('requestsLabel', (calls) => `${calls} requests (budget 120/min, 400/hr)`)(stats.calls)
+            }
+        }
+    }
+    indexStateEl.textContent = text
+
+    // Errors
+    const errors = s.syncErrors || []
+    indexErrorsEl.classList.toggle('p3x-hidden', errors.length === 0)
+    indexErrorsListEl.innerHTML = ''
+    for (const error of errors.slice(-5)) {
+        const li = document.createElement('li')
+        li.textContent = `${error.context || 'sync'}: ${error.message || ''}`.slice(0, 200)
+        indexErrorsListEl.appendChild(li)
+    }
+
+    // Notebooks
+    indexNotebooksEl.innerHTML = ''
+    const notebooks = s.notebooks || []
+    if (notebooks.length === 0) {
+        const tr = document.createElement('tr')
+        const td = document.createElement('td')
+        td.colSpan = 4
+        td.className = 'p3x-index-empty'
+        td.textContent = lang('noNotebooks', 'No notebooks found yet — run a sync to discover them.')
+        tr.appendChild(td)
+        indexNotebooksEl.appendChild(tr)
+    } else {
+        for (const notebook of notebooks) {
+            const tr = document.createElement('tr')
+
+            const nameTd = document.createElement('td')
+            nameTd.textContent = notebook.displayName
+
+            const pagesTd = document.createElement('td')
+            pagesTd.className = 'p3x-index-num'
+            pagesTd.textContent = String(notebook.pages || 0)
+
+            const updatedTd = document.createElement('td')
+            updatedTd.textContent = notebook.lastModifiedDateTime
+                ? formatTime(notebook.lastModifiedDateTime)
+                : lang('neverSynced', 'Never synced')
+
+            const checkboxTd = document.createElement('td')
+            checkboxTd.className = 'p3x-index-num'
+            const checkbox = document.createElement('input')
+            checkbox.type = 'checkbox'
+            checkbox.checked = notebook.enabled
+            checkbox.title = lang('colIndex', 'Index')
+            checkbox.addEventListener('change', async () => {
+                checkbox.disabled = true
+                const result = await ipcRenderer.invoke('p3x-onenote-search-set-notebook', {
+                    accountKey,
+                    notebookId: notebook.id,
+                    enabled: checkbox.checked,
+                })
+                checkbox.disabled = false
+                if (result?.ok) {
+                    notebook.enabled = checkbox.checked
+                    indexStateEl.textContent =
+                        lang('notebookChanged', 'Notebook change saved — it applies on the next sync.')
+                } else {
+                    checkbox.checked = notebook.enabled
+                }
+            })
+            checkboxTd.appendChild(checkbox)
+
+            tr.append(nameTd, pagesTd, updatedTd, checkboxTd)
+            indexNotebooksEl.appendChild(tr)
+        }
+    }
+
+    // Recent activity
+    indexActivityEl.innerHTML = ''
+    const activity = s.activity || []
+    if (activity.length === 0) {
+        const li = document.createElement('li')
+        li.className = 'p3x-index-empty'
+        li.textContent = lang('noActivity', 'Nothing indexed yet in this session.')
+        indexActivityEl.appendChild(li)
+    } else {
+        for (const entry of activity) {
+            const li = document.createElement('li')
+            const time = formatClock(entry.ts)
+            const detail =
+                entry.action === 'remove'
+                    ? lang('activityRemoved', (title) => `Removed "${title}"`)(entry.title)
+                    : lang('activityIndexed', (title, notebook) => `Indexed "${title}" — ${notebook}`)(entry.title, entry.notebookName)
+            li.textContent = `${time ? time + ' — ' : ''}${detail}`
+            indexActivityEl.appendChild(li)
+        }
+    }
+}
+
+async function triggerSync(syncMode) {
+    const result = await ipcRenderer.invoke('p3x-onenote-search-sync-request', {
+        mode: syncMode,
+        accountKey,
+    })
+    if (result?.started) {
+        indexStateEl.textContent =
+            syncMode === 'full'
+                ? lang('rebuildStarted', 'Rebuilding the index...')
+                : lang('syncing', (a, b) => `Indexing notes... (${a}/${b} sections)`)(0, 0)
+    } else if (result?.reason === 'auth') {
+        indexStateEl.textContent = lang('signInRequired', 'Index unavailable — sign in to OneNote.')
+        showSignInButton(true)
+    } else if (result?.reason !== 'queued') {
+        indexStateEl.textContent = lang('syncBusy', 'An index sync is already running.')
+    }
+}
+
+// ── Events from the main process ────────────────────────────────────
+
 function onSyncDone(data) {
     const stats = data?.stats
     if (!visible) {
-        // Toast only when the overlay is closed — the status line carries it otherwise
+        // Toast only when the overlay is closed — the status lines carry it otherwise
         if (stats?.error) {
             if (stats.error.code !== 'auth') {
                 registry.toast.action({
@@ -376,6 +627,9 @@ function onSyncDone(data) {
         }
     }
     refreshStatus()
+    if (mode === 'index') {
+        refreshIndexStatus()
+    }
 }
 
 function onEvent(data) {
@@ -391,31 +645,49 @@ function onEvent(data) {
     switch (data.type) {
         case 'sync-started':
             lastProgress = null
-            setStatus(lang('syncing', (a, b) => `Indexing notes... (${a}/${b} sections)`)(0, 0))
+            if (mode === 'search') {
+                setStatus(lang('syncing', (a, b) => `Indexing notes... (${a}/${b} sections)`)(0, 0))
+            } else {
+                renderIndexStatus()
+            }
             break
 
         case 'sync-progress':
             lastProgress = data
-            setStatus(
-                lang('syncing', (a, b) => `Indexing notes... (${a}/${b} sections)`)(data.sectionsDone ?? 0, data.sectionsTotal ?? 0)
-            )
+            if (mode === 'search') {
+                setStatus(
+                    lang('syncing', (a, b) => `Indexing notes... (${a}/${b} sections)`)(data.sectionsDone ?? 0, data.sectionsTotal ?? 0)
+                )
+            } else {
+                renderIndexStatus()
+            }
             break
 
         case 'sync-retrying':
-            setStatus(lang('retrying', (a, b) => `Rate limited — retrying (${a}/${b})...`)(data.attempt, data.maxAttempts))
+            if (mode === 'search') {
+                setStatus(lang('retrying', (a, b) => `Rate limited — retrying (${a}/${b})...`)(data.attempt, data.maxAttempts))
+            }
             break
 
         case 'sync-error':
-            setStatus(`${data.context || 'sync'}: ${data.message || ''}`.slice(0, 200))
+            if (mode === 'search') {
+                setStatus(`${data.context || 'sync'}: ${data.message || ''}`.slice(0, 200))
+            } else {
+                refreshIndexStatus()
+            }
             break
 
         case 'token-needed':
-            setStatus(lang('harvestingToken', 'Signing in to search...'))
+            if (mode === 'search') {
+                setStatus(lang('harvestingToken', 'Signing in to search...'))
+            }
             break
 
         case 'sign-in-needed':
-            setStatus(lang('signInRequired', 'Index unavailable — sign in to OneNote.'))
-            showSignInButton(true)
+            if (mode === 'search') {
+                setStatus(lang('signInRequired', 'Index unavailable — sign in to OneNote.'))
+                showSignInButton(true)
+            }
             break
 
         case 'sync-done':
@@ -424,4 +696,4 @@ function onEvent(data) {
     }
 }
 
-export default { toggle, show, hide, onTabSwitched, onEvent, signIn }
+export default { toggle, show, showIndex, hide, onTabSwitched, onEvent, signIn }

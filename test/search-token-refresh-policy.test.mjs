@@ -1,11 +1,39 @@
 import { describe, it, expect } from 'vitest'
-import { decodeJwtExp, decideTokenAction } from '../src/electron/lib/search/token-refresh-policy.mjs'
+import {
+    decodeJwtExp,
+    decodeJwtPayload,
+    extractAccountFromToken,
+    decideTokenAction,
+} from '../src/electron/lib/search/token-refresh-policy.mjs'
 
 // A JWT-shaped token with a controllable payload: header.payload.signature
 function jwtWithPayload(payload) {
     const enc = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
     return `${enc({ alg: 'none' })}.${enc(payload)}.sig`
 }
+
+describe('decodeJwtPayload / extractAccountFromToken', () => {
+    it('returns the claims object for a well-formed token', () => {
+        expect(decodeJwtPayload(jwtWithPayload({ exp: 1, preferred_username: 'a@b.c' }))).toMatchObject({
+            preferred_username: 'a@b.c',
+        })
+    })
+
+    it('returns null for malformed input', () => {
+        expect(decodeJwtPayload('')).toBe(null)
+        expect(decodeJwtPayload('x.y')).toBe(null)
+        expect(decodeJwtPayload(null)).toBe(null)
+        expect(decodeJwtPayload('a.b.c')).toBe(null) // not base64 JSON
+    })
+
+    it('prefers preferred_username, then upn, then email', () => {
+        expect(extractAccountFromToken(jwtWithPayload({ preferred_username: 'p@x', upn: 'u@x', email: 'e@x' }))).toBe('p@x')
+        expect(extractAccountFromToken(jwtWithPayload({ upn: 'u@x', email: 'e@x' }))).toBe('u@x')
+        expect(extractAccountFromToken(jwtWithPayload({ email: 'e@x' }))).toBe('e@x')
+        expect(extractAccountFromToken(jwtWithPayload({ exp: 1 }))).toBe(null)
+        expect(extractAccountFromToken('garbage')).toBe(null)
+    })
+})
 
 describe('decodeJwtExp', () => {
     it('reads exp from the payload and converts to millis', () => {

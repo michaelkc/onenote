@@ -39,20 +39,7 @@ export default async (data) => {
         }
 
         case 'search-index-status': {
-            const state = await ipcRenderer.invoke('p3x-onenote-search-count', {
-                accountKey: activeAccountKey(),
-            })
-            let message
-            if (state.count > 0) {
-                message = lang('indexedCount', (count) => `Indexed ${count} notes.`)(state.count)
-                if (state.lastSyncAt) {
-                    const time = new Date(state.lastSyncAt).toLocaleString()
-                    message += ' ' + lang('lastSync', (t) => `Last updated: ${t}`)(time)
-                }
-            } else {
-                message = lang('indexEmpty', 'No notes indexed yet. The index builds in the background after sign-in.')
-            }
-            registry.toast.action({ message })
+            registry.searchOverlay?.showIndex()
             break
         }
     }
