@@ -76,6 +76,10 @@ ipcMain.handle('p3x-onenote-search-token-clear', function (event, data = {}) {
     return {}
 })
 
+ipcMain.handle('p3x-onenote-search-signin', function (event, data = {}) {
+    return registry.search.startSignIn({ accountKey: data.accountKey })
+})
+
 
 ipcMain.handle('p3x-onenote-bookmarks-export', async () => {
     const bookmarks = registry.conf.get('bookmarks') || []

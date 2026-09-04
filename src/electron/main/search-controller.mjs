@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url'
 import registry from '../registry.mjs'
 import accountKey from '../lib/search/account-key.mjs'
 import { decideTokenAction } from '../lib/search/token-refresh-policy.mjs'
+import { refreshAccessToken } from '../lib/search/token-endpoint.mjs'
 import validateTokenCandidates from './search-token-validate.mjs'
+import startPkceSignIn from './search-pkce.mjs'
 
 const AUTH_CONF_KEY = 'searchAuth'
 const AUTH_MARGIN_MS = 5 * 60 * 1000
@@ -59,7 +61,7 @@ function spawnChild() {
     return child
 }
 
-function onChildMessage(message) {
+async function onChildMessage(message) {
     switch (message.type) {
         case 'sync-done': {
             const sync = activeSync
@@ -86,13 +88,20 @@ function onChildMessage(message) {
             forwardToRenderer(message.event, activeSync?.accountKey)
             break
 
-        case 'get-token':
-            // The child's token provider timed out or saw a 401 and awaits a
-            // re-harvest; the renderer harvest → token-validate roundtrip
-            // resolves this via token-updated (or the child's own 60s timeout).
-            awaitingToken = { accountKey: activeSync?.accountKey ?? null, at: Date.now() }
-            forwardToRenderer({ type: 'token-needed' }, activeSync?.accountKey)
+        case 'get-token': {
+            // The child's token provider timed out or saw a 401. Prefer a
+            // silent refresh via the stored refresh token; otherwise ask the
+            // renderer (harvest first, then an interactive PKCE sign-in).
+            const key = activeSync?.accountKey ?? null
+            const fresh = key ? await resolveAccessToken(key) : null
+            if (fresh && child) {
+                child.postMessage({ type: 'token-updated', token: fresh })
+                break
+            }
+            awaitingToken = { accountKey: key, at: Date.now() }
+            forwardToRenderer({ type: 'token-needed' }, key)
             break
+        }
 
         case 'search-results':
         case 'count':
@@ -224,6 +233,73 @@ function clearToken(rawKey) {
     registry.conf.set(AUTH_CONF_KEY, auth)
 }
 
+// A usable access token for a sync: the stored one while fresh, refreshed via
+// the refresh token when stale (PKCE bundles only), null when neither works —
+// the caller then asks the renderer to harvest or sign in.
+async function resolveAccessToken(key) {
+    const stored = getStoredToken(key)
+    if (!stored?.accessToken) {
+        return null
+    }
+
+    const action = decideTokenAction({
+        token: stored.accessToken,
+        expiresOnMs: stored.expiresOn ?? null,
+        nowMs: Date.now(),
+        marginMs: AUTH_MARGIN_MS,
+    })
+    if (action === 'use') {
+        return stored.accessToken
+    }
+
+    if (!stored.refreshToken) {
+        return null // a harvested webview token cannot be refreshed
+    }
+
+    const clientId = registry.conf.get('searchClientId')
+    if (!clientId) {
+        log(`token for ${key} is stale and no searchClientId is configured to refresh it`)
+        return null
+    }
+
+    log(`refreshing access token for ${key}`)
+    try {
+        const refreshed = await refreshAccessToken({ refreshToken: stored.refreshToken, clientId })
+        setStoredToken(key, { ...stored, ...refreshed, acquiredAt: Date.now() })
+        return refreshed.accessToken
+    } catch (error) {
+        log(`token refresh failed for ${key}: ${error.message}`)
+        return null
+    }
+}
+
+// Interactive PKCE sign-in (system browser + loopback redirect). Stores the
+// bundle, unblocks a waiting sync, and kicks off the startup sync.
+async function startSignIn({ accountKey: rawKey } = {}) {
+    const key = accountKey(rawKey)
+    try {
+        const { bundle } = await startPkceSignIn({ accountKey: key })
+        setStoredToken(key, {
+            accessToken: bundle.accessToken,
+            refreshToken: bundle.refreshToken,
+            expiresOn: bundle.expiresOn,
+            source: 'pkce',
+            acquiredAt: Date.now(),
+        })
+
+        if (awaitingToken && (awaitingToken.accountKey === null || awaitingToken.accountKey === key) && child) {
+            awaitingToken = null
+            child.postMessage({ type: 'token-updated', token: bundle.accessToken })
+        }
+
+        requestSync({ mode: 'auto', accountKey: key }).catch(() => {})
+        return { success: true }
+    } catch (error) {
+        log(`sign-in failed for ${key}: ${error.message}`)
+        return { success: false, message: error.message }
+    }
+}
+
 // ── Sync lifecycle ───────────────────────────────────────────────────
 
 function getDbPath(key) {
@@ -250,7 +326,7 @@ function startSync({ mode, accountKey: key, token }) {
 async function requestSync({ mode = 'auto', accountKey: rawKey } = {}) {
     const key = accountKey(rawKey)
 
-    const token = getStoredToken(key)?.accessToken
+    const token = await resolveAccessToken(key)
     if (!token) {
         return { started: false, reason: 'auth' }
     }
@@ -352,6 +428,7 @@ export default {
     count,
     requestSync,
     validateTokenCandidates: validateAndStoreToken,
+    startSignIn,
     clearToken,
     getAuthState,
     getDbPath,

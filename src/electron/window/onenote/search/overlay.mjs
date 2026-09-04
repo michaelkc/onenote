@@ -24,7 +24,7 @@ let debounceTimer = null
 let lastProgress = null
 let statusTimer = null
 
-let inputEl, listEl, emptyEl, statusEl, rebuildBtn
+let inputEl, listEl, emptyEl, statusEl, rebuildBtn, signinBtn
 
 // ── DOM ─────────────────────────────────────────────────────────────
 
@@ -51,7 +51,10 @@ function build() {
             </div>
             <div class="p3x-search-footer">
                 <span class="p3x-search-hint">${lang('openHint', 'Arrow keys select · Enter opens · Esc closes')}</span>
-                <button id="p3x-search-rebuild" class="p3x-btn">${lang('rebuildIndex', 'Rebuild index')}</button>
+                <span class="p3x-search-footer-actions">
+                    <button id="p3x-search-signin" class="p3x-btn p3x-hidden">${lang('signInForSearch', 'Sign in for search')}</button>
+                    <button id="p3x-search-rebuild" class="p3x-btn">${lang('rebuildIndex', 'Rebuild index')}</button>
+                </span>
             </div>
         </div>`
 
@@ -60,6 +63,7 @@ function build() {
     emptyEl = root.querySelector('.p3x-search-empty')
     statusEl = root.querySelector('#p3x-search-status')
     rebuildBtn = root.querySelector('#p3x-search-rebuild')
+    signinBtn = root.querySelector('#p3x-search-signin')
 
     inputEl.addEventListener('input', () => {
         clearTimeout(debounceTimer)
@@ -98,10 +102,36 @@ function build() {
             setStatus(lang('rebuildStarted', 'Rebuilding the index...'))
         } else if (result?.reason === 'auth') {
             setStatus(lang('signInRequired', 'Index unavailable — sign in to OneNote.'))
+            showSignInButton(true)
         } else {
             setStatus(lang('syncBusy', 'An index sync is already running.'))
         }
     })
+
+    signinBtn.addEventListener('click', () => signIn())
+}
+
+// ── Interactive sign-in (PKCE) ──────────────────────────────────────
+
+function showSignInButton(show) {
+    signinBtn.classList.toggle('p3x-hidden', !show)
+}
+
+async function signIn() {
+    showSignInButton(false)
+    setStatus(lang('signInOpened', 'A browser window opened — sign in and come back here.'))
+    try {
+        const result = await ipcRenderer.invoke('p3x-onenote-search-signin', { accountKey })
+        if (result?.success) {
+            await refreshStatus()
+        } else {
+            setStatus(result?.message || lang('signInFailed', 'Sign-in failed — try again.'))
+            showSignInButton(true)
+        }
+    } catch (error) {
+        setStatus((error?.message || '').slice(0, 200) || lang('signInFailed', 'Sign-in failed — try again.'))
+        showSignInButton(true)
+    }
 }
 
 // ── Visibility ──────────────────────────────────────────────────────
@@ -325,6 +355,9 @@ async function refreshStatus() {
         text = lang('indexEmpty', 'No notes indexed yet. The index builds in the background after sign-in.')
     }
     setStatus(text)
+
+    // The interactive sign-in path replaces a failed webview harvest.
+    showSignInButton(state.authState !== 'ok' && !state.syncing)
 }
 
 function onSyncDone(data) {
@@ -380,10 +413,15 @@ function onEvent(data) {
             setStatus(lang('harvestingToken', 'Signing in to search...'))
             break
 
+        case 'sign-in-needed':
+            setStatus(lang('signInRequired', 'Index unavailable — sign in to OneNote.'))
+            showSignInButton(true)
+            break
+
         case 'sync-done':
             onSyncDone(data)
             break
     }
 }
 
-export default { toggle, show, hide, onTabSwitched, onEvent }
+export default { toggle, show, hide, onTabSwitched, onEvent, signIn }

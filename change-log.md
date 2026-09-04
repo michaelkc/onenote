@@ -9,7 +9,7 @@
 
 ### v2026.4.151
 Released on 09/04/2026
-* FEATURE: Added global note search — an app-managed SQLite FTS5 index built from the OneNote Graph API, with a search overlay (Search menu, Ctrl+Shift+E, or the bottom-bar magnifier) listing matching notes with highlighted snippets. Opening a result navigates the OneNote tab to the note's deep link. The index syncs incrementally in the background (rebuild via Search > Rebuild index); auth uses the bearer token harvested from the signed-in OneNote webview.
+* FEATURE: Added global note search — an app-managed SQLite FTS5 index built from the OneNote Graph API, with a search overlay (Search menu, Ctrl+Shift+E, or the bottom-bar magnifier) listing matching notes with highlighted snippets. Opening a result navigates the OneNote tab to the note's deep link. The index syncs incrementally in the background (rebuild via Search > Rebuild index). Auth first tries the OneNote web session, then falls back to an interactive PKCE sign-in (system browser + loopback redirect) with locally stored refresh tokens — see README "Search sign-in" for the one-time Azure app registration.
 
 ### v2026.4.132
 Released on 04/07/2026

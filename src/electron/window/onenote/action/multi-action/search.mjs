@@ -18,6 +18,11 @@ export default async (data) => {
             registry.searchOverlay?.toggle()
             break
 
+        case 'search-signin':
+            registry.searchOverlay?.show()
+            registry.searchOverlay?.signIn()
+            break
+
         case 'search-rebuild-index': {
             const result = await ipcRenderer.invoke('p3x-onenote-search-sync-request', {
                 mode: 'full',

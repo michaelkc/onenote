@@ -207,6 +207,14 @@ function mainMenu() {
                         })
                     }
                 },
+                {
+                    label: registry.lang.search?.signInForSearch || 'Sign in for search',
+                    click: () => {
+                        registry.window.onenote.webContents.send('p3x-onenote-action', {
+                            action: 'search-signin',
+                        })
+                    }
+                },
                 {type: 'separator'},
                 {
                     label: registry.lang.search?.indexStatus || 'Index status',

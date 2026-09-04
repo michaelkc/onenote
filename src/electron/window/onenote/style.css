@@ -763,6 +763,12 @@ body.p3x-dark-mode-invert-quirks .p3x-btn.p3x-btn-warn:hover {
     color: #605e5c;
 }
 
+.p3x-search-footer-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
 /* ── Dark mode search overlay ───────────────────────────────────── */
 
 body.p3x-dark-mode-invert-quirks .p3x-search-panel {

@@ -214,9 +214,17 @@ async function onTabReady(tab) {
     await ensureTokenForTab(tab)
 }
 
-// The indexer hit a 401 mid-sync and asked for a fresh token.
+// The indexer hit a 401 mid-sync and asked for a fresh token. The webview
+// harvest is the cheap first attempt; when it fails, surface the interactive
+// sign-in instead of silently stalling the sync.
 async function onTokenNeeded({ accountKey } = {}) {
-    await harvest({ accountKey: accountKey || 'default', force: true })
+    const result = await harvest({ accountKey: accountKey || 'default', force: true })
+    if (!result.valid) {
+        ipcRenderer.send('p3x-debug', {
+            '[P3X-Search] harvest': 'webview harvest failed — offering the interactive sign-in',
+        })
+        registry.searchOverlay?.onEvent({ type: 'sign-in-needed' })
+    }
 }
 
 // Safety net: signing in after startup can easily miss the dom-ready/navigate

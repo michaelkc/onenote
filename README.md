@@ -98,6 +98,7 @@ P3X OneNote Linux is an independent browser window for the online OneNote, so yo
 * **Bookmark folders** — organize bookmarks into nested folders using `/` separator (e.g. `Work/Projects`). Folders appear as submenus with 📁 icons in the Bookmarks menu.
 * **Bookmark manager** — full dialog to search, inline-edit, and delete bookmarks (Bookmarks > Manage bookmarks)
 * **Bookmark import/export** — export bookmarks to JSON and import from JSON file (Bookmarks menu)
+* **Global note search** — an app-managed full-text index of your notebooks (SQLite FTS5) built from the OneNote Graph API. Open the search overlay with the Search menu, **Ctrl+Shift+E**, or the bottom-bar magnifier; type to search with highlighted snippets and notebook › section context; arrows + Enter (or click) open a note in the OneNote tab. The index syncs incrementally in the background and can be force-rebuilt (Search > Rebuild index). Search needs a one-time sign-in (see [Search sign-in](#search-sign-in) below).
 * `Corporate home` menu item — note: without a corporate login, debugging this feature is not possible. If issues arise, providing login details may help with troubleshooting.
 * **Language:** The language selector in P3X OneNote only controls the Electron app UI (menus, dialogs, buttons). To change the OneNote web content language, you must update your language in your [Microsoft account profile](https://account.microsoft.com/languages). Translations are community-driven:
     * [Translation resources on GitHub](https://github.com/patrikx3/onenote/tree/master/src/translation)
@@ -121,6 +122,25 @@ Right-click any tab to access:
 <!-- (`````~/.local/share/applications/p3x-onenote.desktop`````) -->
 
 ---
+
+## Search sign-in
+
+Global note search reads your notebooks over the Microsoft Graph API and needs its own sign-in (a one-time interactive flow — the app first tries to reuse the OneNote web session, then falls back to this). To enable it, register a free Azure app once:
+
+1. Open the [Azure portal → App registrations → New registration](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false).
+2. Name: e.g. `P3X OneNote Search`.
+3. Supported account types: **Personal Microsoft accounts only**.
+4. Redirect URI: platform **Mobile and desktop applications**, value `http://localhost` (no port — the app uses a dynamic loopback port).
+5. Register, then copy the **Application (client) ID**.
+6. Add it to the app settings file (`~/.config/p3x-onenote/config.json` on Linux, `%APPDATA%\p3x-onenote\config.json` on Windows, `~/Library/Application Support/p3x-onenote/config.json` on macOS):
+
+```json
+{ "searchClientId": "00000000-0000-0000-0000-000000000000" }
+```
+
+7. Restart P3X OneNote and use Search > Sign in for search (or the button in the search overlay). A browser window opens for the Microsoft sign-in; the token is stored locally (with a refresh token) and the index starts building.
+
+Corporate/AAD-backed notebooks are not supported by search in this version (the sign-in targets personal accounts).
 
 # Installation
 

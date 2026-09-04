@@ -229,6 +229,9 @@ const translation = {
     search: {
         title: 'Search',
         searchNotes: 'Search notes',
+        signInForSearch: 'Sign in for search',
+        signInOpened: 'A browser window opened — sign in and come back here.',
+        signInFailed: 'Sign-in failed — try again.',
         rebuildIndex: 'Rebuild index',
         indexStatus: 'Index status',
         placeholder: 'Search notes...',

@@ -161,6 +161,7 @@ const multiActions = (data) => {
             break;
 
         case 'search-notes':
+        case 'search-signin':
         case 'search-rebuild-index':
         case 'search-index-status':
             import('./multi-action/search.mjs').then(m => m.default(data));
