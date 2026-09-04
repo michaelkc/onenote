@@ -200,6 +200,10 @@ async function ensureTokenForTab(tab) {
     }
 
     if (state?.authState === 'ok') {
+        // A valid token needs no harvest — but the index itself still needs
+        // its periodic sync. The main process decides (fresh → skip,
+        // stale → incremental); debounced with the rest of this function.
+        ipcRenderer.invoke('p3x-onenote-search-sync-request', { mode: 'auto', accountKey: key }).catch(() => {})
         return
     }
 

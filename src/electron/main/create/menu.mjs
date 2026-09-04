@@ -238,14 +238,6 @@ function mainMenu() {
                                 action: 'search-index-status',
                             })
                         }
-                    },
-                    {
-                        label: lang.rebuildIndex || 'Rebuild index',
-                        click: () => {
-                            registry.window.onenote.webContents.send('p3x-onenote-action', {
-                                action: 'search-rebuild-index',
-                            })
-                        }
                     }
                 )
 
